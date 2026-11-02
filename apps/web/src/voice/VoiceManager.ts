@@ -1,4 +1,10 @@
-import type { Ack, MeResponse, ServerToClientEvents, VoiceSignalData } from '@hexhaven/shared';
+import type {
+  Ack,
+  MeResponse,
+  ServerToClientEvents,
+  VoicePeer,
+  VoiceSignalData,
+} from '@hexhaven/shared';
 import type { HexClientSocket } from '../net/socket';
 import {
   FALLBACK_ICE_SERVERS,
@@ -280,7 +286,7 @@ export class VoiceManager {
   }
 
   private async sendJoin(gen: number): Promise<void> {
-    let ack: Ack<{ peers: string[] }>;
+    let ack: Ack<{ peers: VoicePeer[] }>;
     try {
       ack = await this.socket.timeout(ACK_TIMEOUT_MS).emitWithAck('voice:join', {});
     } catch (err) {
@@ -294,7 +300,7 @@ export class VoiceManager {
     session.joined = true;
     session.reconnecting = false;
     this.deps.setState({ joined: true, joining: false, muted: this.muted, error: null });
-    for (const peerId of ack.data.peers) this.ensurePeer(peerId);
+    for (const peer of ack.data.peers) this.ensurePeer(peer.userId);
     // The server marks a fresh join as muted; restore an open mic after a reconnect.
     if (!this.muted) this.emitState();
     this.startSpeakingLoop();

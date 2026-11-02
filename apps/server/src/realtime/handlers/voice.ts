@@ -1,4 +1,4 @@
-import { C2S, type Ack, type AckError } from '@hexhaven/shared';
+import { C2S, type Ack, type AckError, type VoicePeer } from '@hexhaven/shared';
 import { ioRooms, type HexServer, type HexSocket } from '../types';
 import { TokenBucket } from '../../voice/rateLimit';
 
@@ -111,7 +111,7 @@ export function registerVoiceHandlers(io: HexServer, socket: HexSocket, hooks: V
   const controlBucket = new TokenBucket(CONTROL_BURST, CONTROL_PER_SEC);
 
   socket.on('voice:join', (rawPayload, rawAck) => {
-    const { payload, reply } = normalizeArgs<{ peers: string[] }>(rawPayload, rawAck);
+    const { payload, reply } = normalizeArgs<{ peers: VoicePeer[] }>(rawPayload, rawAck);
     if (!C2S['voice:join'].safeParse(payload).success) return fail(reply, ERR.badRequest);
     if (!controlBucket.take()) return fail(reply, ERR.rateLimited);
     const roomId = socket.data.roomId;
@@ -127,15 +127,17 @@ export function registerVoiceHandlers(io: HexServer, socket: HexSocket, hooks: V
       }
     }
 
-    const peers = new Set<string>();
+    const peers = new Map<string, VoicePeer>();
     for (const id of voiceSocketIds(socket, roomId)) {
-      const peerId = socket.nsp.sockets.get(id)?.data.userId;
-      if (peerId && peerId !== userId) peers.add(peerId);
+      const peerSocket = socket.nsp.sockets.get(id);
+      const peerId = peerSocket?.data.userId;
+      if (!peerSocket || !peerId || peerId === userId) continue;
+      peers.set(peerId, { userId: peerId, muted: membership.get(peerSocket)?.muted ?? true });
     }
     void socket.join(ioRooms.voice(roomId));
     membership.set(socket, { roomId, muted: true });
 
-    reply({ ok: true, data: { peers: [...peers] } });
+    reply({ ok: true, data: { peers: [...peers.values()] } });
     socket.to(ioRooms.voice(roomId)).emit('voice:peerJoined', { userId });
     notifyState(io, hooks, roomId, userId, { inVoice: true, muted: true });
   });
