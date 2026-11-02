@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AckFailure, emitAckOn, errorMessage, type AckEmitter } from './emit';
+import { AckFailure, emitAckOn, errorMessage, settle, type AckEmitter } from './emit';
 import { apiErrorMessage } from './api';
 
 function fake(reply: ((ack: (res: unknown) => void) => void) | null) {
@@ -51,6 +51,36 @@ describe('emitAckOn', () => {
     vi.advanceTimersByTime(1001);
     await expect(p).rejects.toMatchObject({ code: 'TIMEOUT' });
     expect(() => late!({ ok: true, data: undefined })).not.toThrow();
+  });
+});
+
+describe('emitAckOn while disconnected', () => {
+  it('rejects immediately without emitting (no buffered double-send)', async () => {
+    const calls: string[] = [];
+    const socket: AckEmitter = {
+      connected: false,
+      emit(event) {
+        calls.push(event);
+      },
+    };
+    await expect(emitAckOn(socket, 'chat:send', { text: 'hi' })).rejects.toMatchObject({
+      code: 'NOT_CONNECTED',
+    });
+    expect(calls).toEqual([]);
+  });
+});
+
+describe('settle', () => {
+  it('distinguishes success (even with an undefined ack) from failure', async () => {
+    const errors: string[] = [];
+    await expect(settle(Promise.resolve(undefined), (m) => errors.push(m))).resolves.toEqual({
+      ok: true,
+      data: undefined,
+    });
+    await expect(
+      settle(Promise.reject(new AckFailure('X', 'nope')), (m) => errors.push(m)),
+    ).resolves.toEqual({ ok: false, error: 'nope' });
+    expect(errors).toEqual(['nope']);
   });
 });
 

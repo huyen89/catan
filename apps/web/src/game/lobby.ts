@@ -14,3 +14,11 @@ export function effectiveVariant(s: Pick<RoomSettings, 'variant' | 'maxSeats'>):
   if (s.variant !== 'auto') return s.variant;
   return s.maxSeats >= 5 ? 'ext56' : 'base';
 }
+
+/** Parse a whole number typed by the user; null when it is not an integer within [min, max]. */
+export function parseBoundedInt(text: string, min: number, max: number): number | null {
+  const t = text.trim();
+  if (!/^-?\d+$/.test(t)) return null;
+  const v = Number(t);
+  return v >= min && v <= max ? v : null;
+}

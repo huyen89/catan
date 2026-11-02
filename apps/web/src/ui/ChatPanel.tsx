@@ -26,9 +26,9 @@ export function ChatPanel({ disabled = false }: { disabled?: boolean }) {
     const t = text.trim();
     if (!t || sending) return;
     setSending(true);
-    const ok = await request(emitAck('chat:send', { text: t }).then(() => true));
+    const res = await request(emitAck('chat:send', { text: t }));
     setSending(false);
-    if (ok) setText('');
+    if (res.ok) setText('');
   };
 
   return (

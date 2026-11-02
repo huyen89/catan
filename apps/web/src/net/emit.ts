@@ -12,6 +12,8 @@ export class AckFailure extends Error {
 
 /** The bit of a Socket.IO client that emitAck needs (lets tests pass a fake). */
 export interface AckEmitter {
+  /** When false the request is rejected immediately instead of being buffered. */
+  readonly connected?: boolean;
   emit(event: string, payload: unknown, ack: (res: unknown) => void): unknown;
 }
 
@@ -24,6 +26,9 @@ function isAck(v: unknown): v is Ack<unknown> {
 /**
  * Emit a client→server event and resolve with the ack's `data`.
  * Rejects with AckFailure on `{ok:false}`, a malformed ack, or a timeout.
+ * While the socket is disconnected it rejects with NOT_CONNECTED right away: Socket.IO would
+ * otherwise buffer the emit and send it on reconnect, so a user retry after a timeout could
+ * submit the same request twice.
  */
 export function emitAckOn<E extends C2SEvent>(
   socket: AckEmitter,
@@ -32,6 +37,12 @@ export function emitAckOn<E extends C2SEvent>(
   timeoutMs = ACK_TIMEOUT_MS,
 ): Promise<C2SAckData[E]> {
   return new Promise((resolve, reject) => {
+    if (socket.connected === false) {
+      reject(
+        new AckFailure('NOT_CONNECTED', 'Not connected to the server. Try again in a moment.'),
+      );
+      return;
+    }
     let settled = false;
     const timer = setTimeout(() => {
       if (settled) return;
@@ -59,4 +70,20 @@ export function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message;
   if (typeof e === 'string') return e;
   return 'Something went wrong';
+}
+
+export type Settled<T> = { ok: true; data: T } | { ok: false; error: string };
+
+/** Turn a promise into a discriminated result; failures are reported through `onError`. */
+export async function settle<T>(
+  p: Promise<T>,
+  onError: (message: string) => void = () => {},
+): Promise<Settled<T>> {
+  try {
+    return { ok: true, data: await p };
+  } catch (e) {
+    const error = errorMessage(e);
+    onError(error);
+    return { ok: false, error };
+  }
 }

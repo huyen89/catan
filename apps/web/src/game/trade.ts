@@ -87,12 +87,36 @@ export function acceptedSeats(offer: TradeOffer): Seat[] {
     .sort((a, b) => a - b);
 }
 
-/** Toggle a recipient; an empty selection collapses back to "everyone". */
+/**
+ * Toggle a recipient. From "everyone" (null) a click selects just that seat; an empty selection,
+ * or one that names every other seat, collapses back to "everyone" (null).
+ */
 export function toggleRecipient(to: Seat[] | null, seat: Seat, others: Seat[]): Seat[] | null {
-  const current = to ?? others;
-  const next = current.includes(seat) ? current.filter((s) => s !== seat) : [...current, seat];
-  if (next.length === others.length && others.every((s) => next.includes(s))) return null;
+  if (to === null) return [seat];
+  const next = to.includes(seat) ? to.filter((s) => s !== seat) : [...to, seat];
+  if (next.length === 0) return null;
+  if (others.every((s) => next.includes(s))) return null;
   return next.sort((a, b) => a - b);
+}
+
+/** Identifies the turn a draft was composed in; drafts do not carry over to another turn. */
+export const turnKey = (turn: { number: number; current: Seat }): string =>
+  `${turn.number}:${turn.current}`;
+
+/**
+ * The draft to show: an empty one when the turn has changed since it was composed, or when the
+ * offer it counters is no longer open.
+ */
+export function liveDraft(
+  draft: TradeDraft,
+  composedIn: string,
+  turn: { number: number; current: Seat },
+  trades: ReadonlyArray<{ id: number }>,
+): TradeDraft {
+  if (composedIn !== turnKey(turn)) return emptyDraft();
+  if (draft.counterTo !== null && !trades.some((t) => t.id === draft.counterTo))
+    return emptyDraft();
+  return draft;
 }
 
 /** Resources the player can hand to the bank (have at least the ratio). */

@@ -9,7 +9,7 @@ import {
   type PlayerView,
 } from '@hexhaven/engine';
 import { computeHighlights, sanitizeMode } from './highlights';
-import { canStart, effectiveVariant } from './lobby';
+import { canStart, effectiveVariant, parseBoundedInt } from './lobby';
 import { phasePrompt } from './prompt';
 
 const names = ['Alice', 'Bruno', 'Chen'];
@@ -174,6 +174,15 @@ describe('lobby rules', () => {
     expect(canStart(room([seat(0, 'human', false), seat(1, 'bot'), seat(2, 'bot')]))).toBe(false);
     expect(canStart(room([seat(0, 'human', true), seat(1, 'open'), seat(2, 'bot')]))).toBe(false);
     expect(canStart(room([seat(0, 'human', true), seat(1, 'bot')]))).toBe(false);
+  });
+
+  it('parses bounded whole numbers typed into settings', () => {
+    expect(parseBoundedInt(' 12 ', 5, 20)).toBe(12);
+    expect(parseBoundedInt('4', 5, 20)).toBeNull();
+    expect(parseBoundedInt('21', 5, 20)).toBeNull();
+    expect(parseBoundedInt('1e1', 5, 20)).toBeNull();
+    expect(parseBoundedInt('', 5, 20)).toBeNull();
+    expect(parseBoundedInt('7.5', 5, 20)).toBeNull();
   });
 
   it('resolves the effective board variant', () => {

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { BotDifficulty, RoomInfo, RoomSettings, SeatInfo } from '@hexhaven/shared';
-import { canStart, effectiveVariant } from '../game/lobby';
+import { canStart, effectiveVariant, parseBoundedInt } from '../game/lobby';
 import { emitAck } from '../net/socket';
 import { leaveRoom, request } from '../net/session';
 import { useSession } from '../store/session';
@@ -127,6 +127,47 @@ function SeatRow(props: {
   );
 }
 
+/**
+ * Number input with a local draft: typing never round-trips to the server; the value is
+ * validated and sent on blur or Enter (Escape reverts).
+ */
+function NumberSetting(props: {
+  testId: string;
+  min: number;
+  max: number;
+  value: number;
+  onCommit(v: number): unknown;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft === null) return;
+    const v = parseBoundedInt(draft, props.min, props.max);
+    if (v === null) toastError(`Enter a number from ${props.min} to ${props.max}`);
+    else if (v !== props.value) void props.onCommit(v);
+    setDraft(null);
+  };
+  return (
+    <input
+      type="number"
+      inputMode="numeric"
+      data-testid={props.testId}
+      min={props.min}
+      max={props.max}
+      value={draft ?? String(props.value)}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          commit();
+        } else if (e.key === 'Escape') {
+          setDraft(null);
+        }
+      }}
+    />
+  );
+}
+
 function SettingsForm({ room, editable }: { room: RoomInfo; editable: boolean }) {
   const s = room.settings;
   const update = (patch: Partial<RoomSettings>) => {
@@ -172,30 +213,22 @@ function SettingsForm({ room, editable }: { room: RoomInfo; editable: boolean })
       </label>
       <label>
         Points to win
-        <input
-          type="number"
-          data-testid="settings-vp"
+        <NumberSetting
+          testId="settings-vp"
           min={5}
           max={20}
           value={s.vpToWin}
-          onChange={(e) => {
-            const v = num(e.target.value);
-            if (v >= 5 && v <= 20) void update({ vpToWin: v });
-          }}
+          onCommit={(v) => update({ vpToWin: v })}
         />
       </label>
       <label>
         Discard above
-        <input
-          type="number"
-          data-testid="settings-discard"
+        <NumberSetting
+          testId="settings-discard"
           min={5}
           max={15}
           value={s.discardLimit}
-          onChange={(e) => {
-            const v = num(e.target.value);
-            if (v >= 5 && v <= 15) void update({ discardLimit: v });
-          }}
+          onCommit={(v) => update({ discardLimit: v })}
         />
       </label>
       <label>
@@ -263,10 +296,10 @@ export function Lobby({ room }: { room: RoomInfo }) {
   const fillBots = async () => {
     setFilling(true);
     for (const s of openSeats) {
-      const ok = await request(
+      const res = await request(
         emitAck('room:addBot', { seat: s.index, difficulty: diffOf(s.index) }),
       );
-      if (ok === undefined) break;
+      if (!res.ok) break;
     }
     setFilling(false);
   };

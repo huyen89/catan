@@ -12,7 +12,9 @@ import {
   maritimeGiveOptions,
   myResponse,
   offerRole,
+  liveDraft,
   toggleRecipient,
+  turnKey,
 } from './trade';
 
 const r = resourcesOf;
@@ -110,12 +112,28 @@ describe('offer helpers', () => {
     expect(myResponse(offer, 2)).toBe('pending');
     expect(myResponse(offer, null)).toBeUndefined();
   });
-  it('toggles recipients, collapsing a full set to everyone', () => {
+  it('toggles recipients; empty or full selections collapse to everyone', () => {
     const others = [1, 2, 3];
-    expect(toggleRecipient(null, 2, others)).toEqual([1, 3]);
+    expect(toggleRecipient(null, 2, others)).toEqual([2]);
     expect(toggleRecipient([1, 3], 2, others)).toBeNull();
-    expect(toggleRecipient([1], 3, others)).toEqual([1, 3]);
-    expect(toggleRecipient([1], 1, others)).toEqual([]);
+    expect(toggleRecipient([3], 1, others)).toEqual([1, 3]);
+    expect(toggleRecipient([1], 1, others)).toBeNull();
+  });
+});
+
+describe('liveDraft', () => {
+  const turn = { number: 4, current: 0 };
+  const counter = { ...counterDraft(offer) };
+  it('keeps a draft composed this turn while its countered offer is open', () => {
+    expect(liveDraft(counter, turnKey(turn), turn, [offer])).toBe(counter);
+  });
+  it('drops a counter-offer draft once the countered offer is gone', () => {
+    expect(liveDraft(counter, turnKey(turn), turn, [])).toEqual(emptyDraft());
+  });
+  it('drops any draft when the turn changes', () => {
+    const plain = { ...emptyDraft(), give: r({ brick: 1 }) };
+    expect(liveDraft(plain, turnKey(turn), turn, [])).toBe(plain);
+    expect(liveDraft(plain, turnKey(turn), { number: 5, current: 1 }, [])).toEqual(emptyDraft());
   });
 });
 

@@ -1,5 +1,11 @@
 import { memo, useMemo, type KeyboardEvent } from 'react';
-import type { Board as BoardData, PlayerView, Seat } from '@hexhaven/engine';
+import {
+  graphFor,
+  type Board as BoardData,
+  type BoardGraph,
+  type PlayerView,
+  type Seat,
+} from '@hexhaven/engine';
 import {
   HEX_SIZE,
   boardViewBox,
@@ -94,11 +100,11 @@ const Terrain = memo(function Terrain({ board }: { board: BoardData }) {
   );
 });
 
-const Ports = memo(function Ports({ board }: { board: BoardData }) {
+const Ports = memo(function Ports({ board, graph }: { board: BoardData; graph: BoardGraph }) {
   return (
     <g className="ports">
       {board.ports.map((p) => {
-        const a = portAnchor(board, p.edge);
+        const a = portAnchor(graph, p.edge);
         const [v1, v2] = p.vertices.map((v) => vertexPoint(v));
         const label = p.type === 'any' ? '3:1' : '2:1';
         const title =
@@ -142,6 +148,7 @@ function BoardImpl(props: BoardProps) {
   const { view, highlights: hl, colorOf, nameOf, disabled } = props;
   const board = view.board;
   const vb = useMemo(() => boardViewBox(board), [board]);
+  const graph = useMemo(() => graphFor(board), [board]);
   const hexById = useMemo(() => new Map(board.hexes.map((h) => [h.id, h])), [board]);
   const robber = hexCenter(view.robber);
   const hexLabel = (id: string) => {
@@ -158,12 +165,12 @@ function BoardImpl(props: BoardProps) {
       role="group"
       aria-label="Game board"
     >
-      <Ports board={board} />
+      <Ports board={board} graph={graph} />
       <Terrain board={board} />
 
       <g className="roads">
         {Object.entries(view.roads).map(([edge, seat]) => {
-          const [a, b] = shrinkSegment(...edgePoints(board, edge), 0.14);
+          const [a, b] = shrinkSegment(...edgePoints(graph, edge), 0.14);
           const xy = { x1: round(a.x), y1: round(a.y), x2: round(b.x), y2: round(b.y) };
           return (
             <g key={edge}>
@@ -228,7 +235,7 @@ function BoardImpl(props: BoardProps) {
       {hl.edges.length > 0 && (
         <g className="hl-edges">
           {hl.edges.map((id) => {
-            const [a, b] = shrinkSegment(...edgePoints(board, id), 0.18);
+            const [a, b] = shrinkSegment(...edgePoints(graph, id), 0.18);
             const xy = { x1: round(a.x), y1: round(a.y), x2: round(b.x), y2: round(b.y) };
             return (
               <g

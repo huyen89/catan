@@ -9,11 +9,17 @@ import type { DevPicker } from './BottomBar';
 import { useSeatMeta } from './seats';
 
 export function DiscardDialog({ view, busy }: { view: PlayerView; busy: boolean }) {
+  const count = view.legal?.discardCount ?? 0;
+  if (count <= 0) return null;
+  // Keyed by the count: opening the dialog, or a change in the required count, starts a fresh pick.
+  return <DiscardPicker key={count} view={view} busy={busy} count={count} />;
+}
+
+function DiscardPicker(props: { view: PlayerView; busy: boolean; count: number }) {
+  const { view, busy, count } = props;
   const send = useGameStore((s) => s.send);
   const [sel, setSel] = useState(emptyResources);
-  const count = view.legal?.discardCount ?? 0;
   const hand = view.viewer !== null ? view.players[view.viewer]?.resources : undefined;
-  if (count <= 0) return null;
   const chosen = totalResources(sel);
 
   const confirm = async () => {

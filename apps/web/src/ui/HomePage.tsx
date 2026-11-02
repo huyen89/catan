@@ -9,6 +9,7 @@ const CODE_RE = /^[A-Z0-9]{6}$/;
 
 export function HomePage() {
   const user = useSession((s) => s.user);
+  const connected = useSession((s) => s.connected);
   const [code, setCode] = useState('');
   const [creating, setCreating] = useState(false);
   const normalized = code.trim().toUpperCase();
@@ -16,11 +17,11 @@ export function HomePage() {
   const create = async () => {
     setCreating(true);
     bindSocket();
-    const room = await request(emitAck('room:create', {}));
+    const res = await request(emitAck('room:create', {}));
     setCreating(false);
-    if (room) {
-      enterRoom(room);
-      navigate(roomPath(room.code));
+    if (res.ok) {
+      enterRoom(res.data);
+      navigate(roomPath(res.data.code));
     }
   };
 
@@ -49,7 +50,7 @@ export function HomePage() {
           type="button"
           className="primary big"
           data-testid="create-room"
-          disabled={creating}
+          disabled={creating || !connected}
           onClick={create}
         >
           {creating ? 'Creating…' : 'Create a room'}

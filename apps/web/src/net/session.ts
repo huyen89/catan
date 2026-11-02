@@ -4,7 +4,7 @@ import { useGameStore } from '../store/game';
 import { useRoomStore } from '../store/room';
 import { useSession } from '../store/session';
 import { toastError, toastInfo } from '../store/toast';
-import { errorMessage } from './emit';
+import { errorMessage, settle, type Settled } from './emit';
 import { emitAck, getSocket } from './socket';
 
 let bound = false;
@@ -19,6 +19,7 @@ export function bindSocket(): void {
   const s = getSocket();
   const session = useSession.getState();
 
+  session.setConnected(s.connected);
   s.on('connect', () => {
     session.setConnected(true);
     if (rejoinOnConnect && activeCode) {
@@ -62,7 +63,7 @@ export function enterRoom(room: RoomInfo): void {
 
 export async function joinRoom(code: string): Promise<RoomInfo> {
   bindSocket();
-  activeCode = code;
+  // activeCode only changes once the server has accepted the join.
   const room = await emitAck('room:join', { code });
   enterRoom(room);
   if (room.status !== 'lobby') await syncGame();
@@ -93,12 +94,7 @@ export async function leaveRoom(): Promise<void> {
   navigate('/');
 }
 
-/** Wrap a lobby/room request: shows a toast on failure and resolves to undefined. */
-export async function request<T>(p: Promise<T>): Promise<T | undefined> {
-  try {
-    return await p;
-  } catch (e) {
-    toastError(errorMessage(e));
-    return undefined;
-  }
+/** Wrap a lobby/room request: shows a toast on failure and resolves to a Settled result. */
+export function request<T>(p: Promise<T>): Promise<Settled<T>> {
+  return settle(p, toastError);
 }

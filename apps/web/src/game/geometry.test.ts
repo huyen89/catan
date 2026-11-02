@@ -29,11 +29,11 @@ describe('hex geometry', () => {
   it('edge endpoints are the two vertex positions of the edge', () => {
     const g = graphFor(board4);
     const e = g.edges[0]!;
-    const [a, b] = edgePoints(board4, e);
+    const [a, b] = edgePoints(graphFor(board4), e);
     const [va, vb] = g.edgeVertices[e]!;
     expect(a).toEqual(vertexToPixel(va, HEX_SIZE));
     expect(b).toEqual(vertexToPixel(vb, HEX_SIZE));
-    expect(() => edgePoints(board4, '99,99,NE')).toThrow();
+    expect(() => edgePoints(graphFor(board4), '99,99,NE')).toThrow();
   });
 
   it('shrinkSegment trims both ends symmetrically', () => {
@@ -55,7 +55,7 @@ describe('boardViewBox', () => {
       for (const h of board.hexes)
         for (const p of hexCornerPoints(h.q, h.r)) expect(inside(p)).toBe(true);
       for (const port of board.ports) {
-        const a = portAnchor(board, port.edge);
+        const a = portAnchor(graphFor(board), port.edge);
         // marker radius is 0.3 hex
         expect(inside({ x: a.x - 18, y: a.y - 18 })).toBe(true);
         expect(inside({ x: a.x + 18, y: a.y + 18 })).toBe(true);
@@ -80,7 +80,7 @@ describe('portAnchor', () => {
       const land = g.edgeHexes[port.edge]![0]!;
       const [q, r] = land.split(',').map(Number);
       const c = hexToPixel(q!, r!, HEX_SIZE);
-      const a = portAnchor(board4, port.edge);
+      const a = portAnchor(g, port.edge);
       expect(Math.hypot(a.x - c.x, a.y - c.y)).toBeGreaterThan(HEX_SIZE);
     }
   });

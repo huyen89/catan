@@ -15,10 +15,12 @@ import {
   draftProblem,
   draftToAction,
   emptyDraft,
+  liveDraft,
   maritimeGiveOptions,
   myResponse,
   offerRole,
   toggleRecipient,
+  turnKey,
   type TradeDraft,
 } from '../../game/trade';
 import { useGameStore } from '../../store/game';
@@ -154,7 +156,7 @@ function Composer(props: {
               onClick={() =>
                 setDraft({
                   ...draft,
-                  to: draft.to === null ? [s] : toggleRecipient(draft.to, s, others),
+                  to: toggleRecipient(draft.to, s, others),
                 })
               }
             >
@@ -307,7 +309,12 @@ function OfferCard(props: {
 }
 
 export function TradePanel({ view, busy }: { view: PlayerView; busy: boolean }) {
-  const [draft, setDraft] = useState<TradeDraft>(emptyDraft);
+  const [stored, setStored] = useState(() => ({
+    draft: emptyDraft(),
+    turn: turnKey(view.turn),
+  }));
+  const draft = liveDraft(stored.draft, stored.turn, view.turn, view.trades);
+  const setDraft = (d: TradeDraft) => setStored({ draft: d, turn: turnKey(view.turn) });
   if (view.viewer === null) return null;
   const canOffer = canDo(view, 'OFFER_TRADE');
   const showComposer = canOffer || draft.counterTo !== null;

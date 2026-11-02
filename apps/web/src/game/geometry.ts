@@ -1,9 +1,9 @@
 import {
-  graphFor,
   hexToPixel,
   parseHexId,
   vertexToPixel,
   type Board,
+  type BoardGraph,
   type EdgeId,
   type HexId,
   type VertexId,
@@ -47,9 +47,9 @@ export function vertexPoint(id: VertexId, size = HEX_SIZE): Point {
   return vertexToPixel(id, size);
 }
 
-/** Both endpoints of an edge, from the board's adjacency graph. */
-export function edgePoints(board: Board, id: EdgeId, size = HEX_SIZE): [Point, Point] {
-  const ends = graphFor(board).edgeVertices[id];
+/** Both endpoints of an edge, from the board's adjacency graph (`graphFor(board)`). */
+export function edgePoints(graph: BoardGraph, id: EdgeId, size = HEX_SIZE): [Point, Point] {
+  const ends = graph.edgeVertices[id];
   if (!ends) throw new Error(`Unknown edge ${id}`);
   return [vertexToPixel(ends[0], size), vertexToPixel(ends[1], size)];
 }
@@ -71,9 +71,8 @@ export const PORT_OFFSET = 0.62;
  * Where to draw a port marker: pushed out from the coast edge's midpoint, away from the land hex
  * that owns the edge.
  */
-export function portAnchor(board: Board, edge: EdgeId, size = HEX_SIZE): Point {
-  const g = graphFor(board);
-  const [a, b] = edgePoints(board, edge, size);
+export function portAnchor(g: BoardGraph, edge: EdgeId, size = HEX_SIZE): Point {
+  const [a, b] = edgePoints(g, edge, size);
   const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
   const land = g.edgeHexes[edge]?.[0];
   if (!land) return mid;
