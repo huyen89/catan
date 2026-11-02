@@ -1,18 +1,20 @@
-import { generateBoard } from './board/generate';
+import { expandPool, generateBoard } from './board/generate';
 import { emptyResources } from './resources';
 import { seedRng, shuffle } from './rng';
 import type { DevCardType, GameConfig, GameState, PlayerState } from './types';
 import { DEFAULT_CONFIG, RESOURCES } from './types';
 import { VARIANTS, defaultVariantFor } from './variants';
-import { expandPool } from './board/generate';
 
 export const ENGINE_VERSION = 1;
 
 export function normalizeConfig(partial: Partial<GameConfig> & { players: number }): GameConfig {
+  const defined = Object.fromEntries(
+    Object.entries(partial).filter(([, v]) => v !== undefined),
+  ) as Partial<GameConfig> & { players: number };
   return {
     ...DEFAULT_CONFIG,
     variant: defaultVariantFor(partial.players),
-    ...partial,
+    ...defined,
   };
 }
 

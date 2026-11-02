@@ -24,6 +24,12 @@ function push<K extends string, V>(m: Record<K, V[]>, k: K, v: V): void {
   if (!arr.includes(v)) arr.push(v);
 }
 
+function deepFreeze(o: object): void {
+  for (const v of Object.values(o)) if (v && typeof v === 'object') deepFreeze(v);
+  Object.freeze(o);
+}
+
+/** Returns a cached, deeply frozen graph — never mutate it. */
 export function buildGraph(coords: ReadonlyArray<{ q: number; r: number }>): BoardGraph {
   const key = coords
     .map((c) => hexId(c.q, c.r))
@@ -85,6 +91,7 @@ export function buildGraph(coords: ReadonlyArray<{ q: number; r: number }>): Boa
   }
   g.coastEdges = ordered;
 
+  deepFreeze(g);
   cache.set(key, g);
   return g;
 }

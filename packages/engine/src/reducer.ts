@@ -33,7 +33,11 @@ export function applyAction(state: GameState, seat: Seat, action: Action): Apply
   if (!Number.isInteger(seat) || seat < 0 || seat >= state.players.length) {
     return { ok: false, error: err('INVALID_ACTION', 'Unknown seat') };
   }
-  const handler = HANDLERS[action?.type as ActionType] as Handler<ActionType> | undefined;
+  const type = action?.type;
+  const handler =
+    typeof type === 'string' && Object.hasOwn(HANDLERS, type)
+      ? (HANDLERS[type as ActionType] as Handler<ActionType> | undefined)
+      : undefined;
   if (!handler) {
     return { ok: false, error: err('NOT_IMPLEMENTED', `No handler for ${String(action?.type)}`) };
   }

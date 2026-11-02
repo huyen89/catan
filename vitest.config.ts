@@ -21,7 +21,7 @@ export default defineConfig({
           testTimeout: 20000,
         },
       },
-      { test: { name: 'web', root: 'apps/web', include: ['src/**/*.test.ts'] } },
+      { test: { name: 'web', root: 'apps/web', include: ['src/**/*.test.{ts,tsx}'] } },
     ],
   },
 });

@@ -18,7 +18,7 @@ The engine implements these rules. Tests reference the section names below.
   2. The roller moves the robber to a different hex.
   3. The roller steals 1 random card from an opponent who has a building on that hex and holds cards. The steal step is skipped when there is no such opponent.
 - `main`: build, buy, trade, and play at most one dev card (not one bought this turn). VP cards are never played. They count in secret and are revealed at game over.
-- Knight or road building played before the roll: after resolving, the player returns to `preRoll`. Knight is the only dev card allowed before the roll.
+- Knight is the only dev card allowed before the roll. After its robber move and steal, the player returns to `preRoll`.
 
 ## Building
 

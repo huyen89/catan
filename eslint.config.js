@@ -10,6 +10,7 @@ export default tseslint.config(
       'coverage/**',
       'playwright-report/**',
       'test-results/**',
+      '.claude/**',
     ],
   },
   js.configs.recommended,
@@ -38,6 +39,10 @@ export default tseslint.config(
         'fetch',
         'window',
         'document',
+        'crypto',
+        'performance',
+        'globalThis',
+        'queueMicrotask',
       ],
       'no-restricted-properties': [
         'error',

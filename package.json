@@ -18,7 +18,7 @@
     "e2e": "playwright test -c e2e/playwright.config.ts --pass-with-no-tests",
     "dev": "pnpm -r --parallel --filter @hexhaven/server --filter @hexhaven/web run dev",
     "start": "pnpm --filter @hexhaven/server run start",
-    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm sim"
+    "verify": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm sim"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

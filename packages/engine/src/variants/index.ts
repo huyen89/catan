@@ -16,7 +16,7 @@ export interface VariantDef {
 export const VARIANTS: Record<VariantId, VariantDef> = {
   base: {
     id: 'base',
-    minPlayers: 2,
+    minPlayers: 3,
     maxPlayers: 4,
     layout: BASE_LAYOUT,
     devDeck: DEV_DECKS.base,
