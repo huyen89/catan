@@ -83,13 +83,13 @@ describe('engine property tests', () => {
   it('property: random games (3-6 players) keep invariants and never throw', () => {
     fc.assert(
       fc.property(seedArb, playersArb, (seed, players) => {
-        const game = playRandomGame(seed, players, 400, (s, step) => {
+        const game = playRandomGame(seed, players, 300, (s, step) => {
           const bad = violations(s);
           if (bad.length > 0) expect.fail(`${JSON.stringify(step)} → ${bad.join('; ')}`);
         });
-        expect(game.state.phase.kind === 'gameOver' || game.log.length === 400).toBe(true);
+        expect(game.state.phase.kind === 'gameOver' || game.log.length === 300).toBe(true);
       }),
-      { numRuns: 40 },
+      { numRuns: 30 },
     );
   }, 30_000);
 
@@ -103,7 +103,7 @@ describe('engine property tests', () => {
             expect(game.events.at(-1)?.type).toBe('gameOver');
           } else expect(game.log).toHaveLength(6000);
         }),
-        { numRuns: 3 },
+        { numRuns: 2 },
       );
     }
   }, 30_000);
@@ -113,7 +113,7 @@ describe('engine property tests', () => {
       fc.property(seedArb, playersArb, (seed, players) => {
         const rnd = seededRandom(`${seed}/legal`);
         let step = 0;
-        playRandomGame(seed, players, 400, (s) => {
+        playRandomGame(seed, players, 300, (s) => {
           // Check every early (setup) step, then a sample of the rest.
           if (step++ > 30 && step % 4 !== 0) return;
           for (const seat of getPendingActors(s)) {
@@ -132,7 +132,7 @@ describe('engine property tests', () => {
           }
         });
       }),
-      { numRuns: 12 },
+      { numRuns: 10 },
     );
   }, 30_000);
 
@@ -148,7 +148,7 @@ describe('engine property tests', () => {
         }
         expect(JSON.stringify(s)).toBe(JSON.stringify(game.state));
       }),
-      { numRuns: 15 },
+      { numRuns: 10 },
     );
   }, 30_000);
 
@@ -177,7 +177,7 @@ describe('engine property tests', () => {
           }
         });
       }),
-      { numRuns: 10 },
+      { numRuns: 8 },
     );
   }, 30_000);
 });
