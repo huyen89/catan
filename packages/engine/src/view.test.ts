@@ -69,6 +69,30 @@ describe('toPlayerView', () => {
     expect(s).toEqual(before);
   });
 
+  it('copies nested phase and turn data (discard, steal, specialBuild, dice)', () => {
+    const phases: GameState['phase'][] = [
+      { kind: 'discard', pending: { '1': 4 } },
+      { kind: 'steal', candidates: [1, 2], returnTo: 'main' },
+      { kind: 'specialBuild', seat: 1, queue: [2, 3] },
+      { kind: 'setup', index: 1, step: 'road', lastSettlement: '0,0,N' },
+    ];
+    for (const phase of phases) {
+      const s = inPhase(newGame(5), phase);
+      s.turn.dice = [3, 4];
+      const before = structuredClone(s);
+      const v = toPlayerView(s, 1);
+      expect(v.phase).toEqual(s.phase);
+      const p = v.phase as unknown as Record<string, unknown>;
+      for (const k of Object.keys(p)) {
+        const val = p[k];
+        if (Array.isArray(val)) val.push(9);
+        else if (val && typeof val === 'object') (val as Record<string, number>)['1'] = 0;
+      }
+      v.turn.dice![0] = 6;
+      expect(s).toEqual(before);
+    }
+  });
+
   it('redacts stolen resources and bought cards for third parties', () => {
     const stole = { type: 'stole', thief: 0, victim: 1, resource: 'ore' } as const;
     expect(redactEvent(stole, 0)).toEqual(stole);
