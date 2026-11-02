@@ -13,3 +13,4 @@ playwright-report/
 .turbo/
 .DS_Store
 *.tsbuildinfo
+.claude/
