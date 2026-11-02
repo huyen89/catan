@@ -2,6 +2,7 @@ import { useId, type ReactNode } from 'react';
 import { RESOURCES, type Resource, type ResourceCounts } from '@hexhaven/engine';
 import { RESOURCE_LABEL } from '../game/labels';
 import { adjustCount } from '../game/trade';
+import { navigate } from '../router';
 import { ResourceIcon } from './icons';
 
 /** Five resource steppers. Test ids: `${testPrefix}-${res}-plus|minus`. */
@@ -79,6 +80,39 @@ export function ResourceChoice(props: {
         </button>
       ))}
     </div>
+  );
+}
+
+/** In-app link: a real <a href> (middle-click, copy link) that navigates without a reload. */
+export function Link(props: {
+  to: string;
+  className?: string;
+  testId?: string;
+  'aria-label'?: string;
+  children: ReactNode;
+}) {
+  return (
+    <a
+      href={props.to}
+      className={props.className}
+      data-testid={props.testId}
+      aria-label={props['aria-label']}
+      onClick={(e) => {
+        if (
+          e.defaultPrevented ||
+          e.button !== 0 ||
+          e.metaKey ||
+          e.ctrlKey ||
+          e.shiftKey ||
+          e.altKey
+        )
+          return;
+        e.preventDefault();
+        navigate(props.to);
+      }}
+    >
+      {props.children}
+    </a>
   );
 }
 
