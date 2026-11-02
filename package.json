@@ -1,0 +1,36 @@
+{
+  "name": "hexhaven",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "pnpm -r --parallel run typecheck",
+    "test": "vitest run",
+    "test:prop": "vitest run --project engine -t property",
+    "sim": "pnpm --filter @hexhaven/bot run sim -- --games 200",
+    "build": "pnpm --filter @hexhaven/web run build",
+    "e2e": "playwright test -c e2e/playwright.config.ts --pass-with-no-tests",
+    "dev": "pnpm -r --parallel --filter @hexhaven/server --filter @hexhaven/web run dev",
+    "start": "pnpm --filter @hexhaven/server run start",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm sim"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "1.63.0",
+    "@types/node": "^24.0.0",
+    "eslint": "^10.14.0",
+    "fast-check": "^4.10.2",
+    "globals": "^17.14.0",
+    "prettier": "^3.9.10",
+    "tsx": "^4.23.15",
+    "typescript": "6.0.3",
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^5.0.5"
+  }
+}
