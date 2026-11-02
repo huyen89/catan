@@ -1,4 +1,10 @@
+import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { App } from './App';
+import './styles.css';
 
-// Implemented by workstream W.
-createRoot(document.getElementById('root')!).render(<p>Hexhaven</p>);
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+);
