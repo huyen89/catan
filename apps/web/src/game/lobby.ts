@@ -1,11 +1,17 @@
 import type { RoomInfo, RoomSettings } from '@hexhaven/shared';
 
-/** The host may start once every seat is filled and every human is ready. */
+/**
+ * The host may start once every seat is filled, at least one human is seated and every other
+ * human is ready (the server treats the host pressing Start as their ready signal).
+ */
 export function canStart(room: RoomInfo): boolean {
   const seats = room.seats.slice(0, room.settings.maxSeats);
   return (
     seats.length === room.settings.maxSeats &&
-    seats.every((s) => s.kind === 'bot' || (s.kind === 'human' && s.ready))
+    seats.some((s) => s.kind === 'human') &&
+    seats.every(
+      (s) => s.kind === 'bot' || (s.kind === 'human' && (s.ready || s.userId === room.hostUserId)),
+    )
   );
 }
 
