@@ -84,4 +84,25 @@ export const MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX chat_room ON chat_messages(room_id, id);
   `,
+  // 2: persisted kick list, per-game seat roster with final VP, and turn count for history.
+  `
+  CREATE TABLE room_kicks (
+    room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL,
+    PRIMARY KEY (room_id, user_id)
+  ) WITHOUT ROWID;
+
+  CREATE TABLE game_players (
+    game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+    seat INTEGER NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('human', 'bot')),
+    user_id TEXT,
+    name TEXT NOT NULL,
+    vp INTEGER,
+    PRIMARY KEY (game_id, seat)
+  ) WITHOUT ROWID;
+  CREATE INDEX game_players_user ON game_players(user_id, game_id);
+
+  ALTER TABLE games ADD COLUMN turns INTEGER;
+  `,
 ];

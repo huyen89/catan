@@ -1,4 +1,4 @@
-import type { Action, ApplyResult, GameEvent, GameState, Seat } from '@hexhaven/engine';
+import type { Action, ApplyResult, GameEvent, GameState, PlayerView, Seat } from '@hexhaven/engine';
 import type { BotDifficulty, GameStatePayload } from '@hexhaven/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import type { Repos } from '../db';
@@ -84,6 +84,14 @@ export class GameRunner {
   private lastDeadline: number | null = null;
   private pausedFlag = false;
   private closed = false;
+  /**
+   * Redacted views of the current version, one per viewer seat (null = spectator). A broadcast,
+   * catch-up syncs and bot turns at the same version all share these instead of re-redacting.
+   */
+  private views: { version: number; bySeat: Map<Seat | null, PlayerView> } = {
+    version: -1,
+    bySeat: new Map(),
+  };
 
   private readonly engine: EngineApi;
   private readonly host: RunnerHost;
@@ -172,6 +180,11 @@ export class GameRunner {
     return this.buildPayload(userId === null ? null : this.seatOf(userId), events);
   }
 
+  /** Persist the current state as a snapshot so a restart does not have to replay the log. */
+  snapshot(): void {
+    if (!this.isOver) this.opts.repos.games.saveSnapshot(this.gameId, this.current);
+  }
+
   /** TEST_MODE only: move resources from the bank to a hand, bump the version and broadcast. */
   testGive(seat: Seat, resources: Partial<Record<string, number>>): Promise<void> {
     return this.enqueue(() => {
@@ -240,7 +253,13 @@ export class GameRunner {
       });
       if (action.type === 'END_TURN' || over) repos.games.saveSnapshot(this.gameId, next);
       if (over) {
-        repos.games.finish(this.gameId, winner, ts);
+        const end = res.events.find((e) => e.type === 'gameOver');
+        repos.games.finish(this.gameId, {
+          winner,
+          now: ts,
+          turns: next.turn.number,
+          vp: end?.type === 'gameOver' ? end.vp : null,
+        });
         repos.rooms.setStatus(this.host.roomId, 'finished', ts);
       }
     });
@@ -257,12 +276,25 @@ export class GameRunner {
     return res;
   }
 
+  /** Cached `toPlayerView` of the current state. Callers must treat the result as read-only. */
+  viewFor(seat: Seat | null): PlayerView {
+    if (this.views.version !== this.current.version) {
+      this.views = { version: this.current.version, bySeat: new Map() };
+    }
+    let v = this.views.bySeat.get(seat);
+    if (!v) {
+      v = this.engine.toPlayerView(this.current, seat);
+      this.views.bySeat.set(seat, v);
+    }
+    return v;
+  }
+
   private buildPayload(seat: Seat | null, events: GameEvent[]): GameStatePayload {
     return {
       roomId: this.host.roomId,
       gameId: this.gameId,
       version: this.current.version,
-      view: this.engine.toPlayerView(this.current, seat),
+      view: this.viewFor(seat),
       events: events
         .map((e) => this.engine.redactEvent(e, seat))
         .filter((e): e is GameEvent => e !== null),
@@ -340,7 +372,7 @@ export class GameRunner {
     if (!this.isPending(seat) || !this.isBotControlled(seat)) return;
 
     const version = this.current.version;
-    const view = this.engine.toPlayerView(this.current, seat);
+    const view = this.viewFor(seat);
     const difficulty = this.host.seats()[seat]!.botDifficulty;
     let ok = false;
     try {
@@ -366,7 +398,7 @@ export class GameRunner {
   }
 
   private tryFallbacks(seat: Seat, actor: Actor): boolean {
-    const view = this.engine.toPlayerView(this.current, seat);
+    const view = this.viewFor(seat);
     for (const action of fallbackActions(view, seat)) {
       try {
         if (this.apply(seat, action, actor).ok) return true;
@@ -500,7 +532,7 @@ export class GameRunner {
     else if (s.phase.kind === 'specialBuild') action = { type: 'PASS_SPECIAL_BUILD' };
     else {
       try {
-        const view = this.engine.toPlayerView(s, seat);
+        const view = this.viewFor(seat);
         action = this.opts.decide(view, { difficulty: 'normal', random: this.random });
       } catch (e) {
         this.opts.log.warn({ err: e, gameId: this.gameId, seat }, 'timeout bot decide failed');

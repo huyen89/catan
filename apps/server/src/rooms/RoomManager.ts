@@ -11,6 +11,7 @@ import {
 import type { FastifyBaseLogger } from 'fastify';
 import type { Config } from '../config';
 import type { Repos } from '../db';
+import type { RoomRow } from '../db/rooms';
 import { AppError } from '../errors';
 import { leaveVoice, type VoiceHooks } from '../realtime/handlers/voice';
 import { ioRooms, type HexServer, type HexSocket } from '../realtime/types';
@@ -42,6 +43,8 @@ export interface RoomManagerDeps {
 export class RoomManager {
   private readonly rooms = new Map<string, Room>();
   private readonly codes = new Map<string, string>();
+  /** Set once shutdown begins: socket disconnects no longer start grace timers or write. */
+  private closing = false;
   readonly voiceHooks: VoiceHooks;
 
   constructor(private readonly deps: RoomManagerDeps) {
@@ -56,15 +59,22 @@ export class RoomManager {
     return this.rooms.get(roomId);
   }
 
-  /** In-memory room by code, falling back to a persisted lobby (e.g. after a restart). */
+  /**
+   * In-memory room by code, falling back to a persisted lobby or finished room (e.g. after a
+   * restart, so the table can still open a rematch). In-game rooms are loaded by `recover`.
+   */
   findByCode(code: string): Room | null {
     const id = this.codes.get(code);
     if (id) return this.rooms.get(id) ?? null;
     const row = this.deps.repos.rooms.byCode(code);
-    if (!row || row.status !== 'lobby') return null;
-    const room = Room.fromRow(row, (uid) => this.identityOf(uid));
+    if (!row || row.status === 'in_game') return null;
+    const room = this.hydrate(row);
     this.register(room);
     return room;
+  }
+
+  private hydrate(row: RoomRow): Room {
+    return Room.fromRow(row, (uid) => this.identityOf(uid), this.deps.repos.rooms.kicksOf(row.id));
   }
 
   private roomOf(socket: HexSocket): Room {
@@ -132,6 +142,7 @@ export class RoomManager {
 
   /** Socket disconnected (VOX handles its own voice cleanup on disconnect). */
   disconnected(socket: HexSocket): void {
+    if (this.closing) return;
     const room = socket.data.roomId ? this.rooms.get(socket.data.roomId) : undefined;
     if (room) this.removeMember(room, socket, false);
   }
@@ -240,7 +251,11 @@ export class RoomManager {
       room.idleTimer = null;
       if (room.members.size > 0 || room.status === 'in_game') return;
       this.dispose(room);
-      if (room.status === 'lobby') this.deps.repos.rooms.delete(room.id);
+      if (room.status !== 'lobby') return;
+      // A rematch lobby keeps its row: deleting it would cascade away the game history.
+      if (this.deps.repos.rooms.hasGames(room.id))
+        this.deps.repos.rooms.setStatus(room.id, 'finished', Date.now());
+      else this.deps.repos.rooms.delete(room.id);
     }, this.deps.lobbyIdleMs ?? DEFAULT_LOBBY_IDLE_MS);
   }
 
@@ -309,6 +324,7 @@ export class RoomManager {
       throw new AppError('USER_NOT_FOUND', 'That user is not in this room');
     }
     room.kicked.add(targetId);
+    this.deps.repos.rooms.addKick(room.id, targetId);
     this.clearGrace(room, targetId);
     const seated = room.vacateSeat(targetId);
     for (const id of member ? [...member.sockets] : []) {
@@ -347,14 +363,22 @@ export class RoomManager {
     }
     repos.tx(() => {
       repos.rooms.save(room.toRow(now));
-      repos.games.create({
-        id: gameId,
-        roomId: room.id,
-        config: gameConfig,
-        seed,
-        engineVersion: state.engineVersion,
-        createdAt: now,
-      });
+      repos.games.create(
+        {
+          id: gameId,
+          roomId: room.id,
+          config: gameConfig,
+          seed,
+          engineVersion: state.engineVersion,
+          createdAt: now,
+        },
+        room.seats.map((s, seat) => ({
+          seat,
+          kind: s.kind === 'bot' ? ('bot' as const) : ('human' as const),
+          userId: s.kind === 'bot' ? null : s.userId,
+          name: s.name,
+        })),
+      );
       repos.games.saveSnapshot(gameId, state);
     });
     this.attachRunner(room, gameId, state);
@@ -373,8 +397,17 @@ export class RoomManager {
         this.broadcast(room);
       },
       broadcastGame: (build) => {
-        for (const m of room.members.values())
-          if (m.sockets.size > 0) io.to([...m.sockets]).emit('game:state', build(m.userId));
+        // `build` returns one shared payload per seat (spectators share one), so group sockets
+        // by payload and serialise each distinct payload once.
+        const targets = new Map<GameStatePayload, string[]>();
+        for (const m of room.members.values()) {
+          if (m.sockets.size === 0) continue;
+          const p = build(m.userId);
+          const list = targets.get(p);
+          if (list) list.push(...m.sockets);
+          else targets.set(p, [...m.sockets]);
+        }
+        for (const [p, sockets] of targets) io.to(sockets).emit('game:state', p);
       },
       onGameOver: () => {
         room.status = 'finished';
@@ -395,6 +428,13 @@ export class RoomManager {
     });
     this.broadcast(room);
     room.runner.begin();
+  }
+
+  rematch(socket: HexSocket): void {
+    const room = this.roomOf(socket);
+    room.rematch(socket.data.userId);
+    this.changed(room);
+    this.deps.log.info({ roomId: room.id }, 'rematch lobby opened');
   }
 
   // ------------------------------------------------------------------ game & chat
@@ -464,7 +504,7 @@ export class RoomManager {
         const game = repos.games.activeForRoom(id);
         if (!game) throw new Error('no active game');
         const state = recoverGameState(engine, repos, game.id);
-        const room = Room.fromRow(row, (uid) => this.identityOf(uid));
+        const room = this.hydrate(row);
         this.register(room);
         this.attachRunner(room, game.id, state);
         for (const s of room.seats) if (s.kind === 'human') this.startGrace(room, s.userId!);
@@ -475,8 +515,16 @@ export class RoomManager {
     }
   }
 
-  /** Shutdown: stop every timer. */
+  /** Shutdown: snapshot every running game, then stop every timer. */
   closeAll(): void {
+    this.closing = true;
+    for (const room of this.rooms.values()) {
+      try {
+        room.runner?.snapshot();
+      } catch (e) {
+        this.deps.log.error({ err: e, roomId: room.id }, 'shutdown snapshot failed');
+      }
+    }
     for (const room of [...this.rooms.values()]) this.dispose(room);
   }
 

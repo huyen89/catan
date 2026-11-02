@@ -56,6 +56,8 @@ export function migrate(db: Db): void {
 
 export function createRepos(db: Db): Repos {
   const tables = [
+    'room_kicks',
+    'game_players',
     'chat_messages',
     'game_snapshots',
     'game_actions',

@@ -49,6 +49,10 @@ export interface RoomsRepo {
   delete(id: string): void;
   /** Remove lobby rooms that have not been touched since `before`. */
   deleteStaleLobbies(before: number): number;
+  /** True when at least one game was played in the room (its row then keeps the history). */
+  hasGames(id: string): boolean;
+  addKick(roomId: string, userId: string): void;
+  kicksOf(roomId: string): string[];
 }
 
 export function createRoomsRepo(db: Database.Database): RoomsRepo {
@@ -79,6 +83,16 @@ export function createRoomsRepo(db: Database.Database): RoomsRepo {
   const delStale = db.prepare(
     `DELETE FROM rooms WHERE status = 'lobby' AND updated_at < ?
        AND NOT EXISTS (SELECT 1 FROM games WHERE games.room_id = rooms.id)`,
+  );
+
+  const hasGames = db.prepare<[string], { one: number }>(
+    'SELECT 1 AS one FROM games WHERE room_id = ? LIMIT 1',
+  );
+  const addKick = db.prepare(
+    'INSERT INTO room_kicks (room_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING',
+  );
+  const kicksOf = db.prepare<[string], { user_id: string }>(
+    'SELECT user_id FROM room_kicks WHERE room_id = ?',
   );
 
   const hydrate = (r: RawRoom | undefined): RoomRow | null =>
@@ -123,5 +137,8 @@ export function createRoomsRepo(db: Database.Database): RoomsRepo {
     codeExists: (code) => codeExists.get(code) !== undefined,
     delete: (id) => void del.run(id),
     deleteStaleLobbies: (before) => delStale.run(before).changes,
+    hasGames: (id) => hasGames.get(id) !== undefined,
+    addKick: (roomId, userId) => void addKick.run(roomId, userId),
+    kicksOf: (roomId) => kicksOf.all(roomId).map((r) => r.user_id),
   };
 }

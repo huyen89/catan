@@ -26,3 +26,5 @@ export class TokenBucket {
 export const messageBucket = () => new TokenBucket(40, 20);
 /** Chat: 5 messages per 10 seconds. */
 export const chatBucket = () => new TokenBucket(5, 0.5);
+/** room:create writes a DB row each time: 3 burst, then one every 5 seconds. */
+export const createBucket = () => new TokenBucket(3, 0.2);
