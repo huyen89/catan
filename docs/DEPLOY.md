@@ -128,82 +128,145 @@ docker compose -f deploy/docker-compose.yml logs -f    # Ctrl+C to stop followin
 curl http://127.0.0.1:3000/api/health                  # works on the host machine only
 ```
 
-Open your `PUBLIC_ORIGIN` in a browser, sign in, create a room and share the 6-letter room code with
-your friends. The containers restart by themselves after a reboot (`restart: unless-stopped`) as long as
-Docker starts at boot.
+If the app keeps restarting, read its log. The most common cause is a missing `PUBLIC_ORIGIN`: in
+production the server refuses to start without it.
 
-To stop everything, run `docker compose -f deploy/docker-compose.yml down`. Your data stays in the
-`hexhaven_hexhaven-data` volume.
+Open your `PUBLIC_ORIGIN` in a browser, sign in, create a room and share the 6-letter room code with
+your friends. To stop everything, run `docker compose -f deploy/docker-compose.yml down`. Your data
+stays in the `hexhaven_hexhaven-data` volume.
+
+**What the compose file does for you:**
+
+- **Restarts.** Every container has `restart: unless-stopped`, so it comes back after a crash or a
+  reboot, as long as Docker itself starts at boot (Docker Desktop: "Start when you sign in").
+- **Health check.** Docker calls `/api/health` every 30 seconds and marks the app unhealthy after 3
+  failures. cloudflared only starts once the app is healthy.
+- **Locked-down container.** The app runs as the unprivileged `node` user with a read-only filesystem,
+  no Linux capabilities and `no-new-privileges`. It can write only to the `/data` volume (the SQLite
+  database) and a small in-memory `/tmp`. Logs are rotated (3 × 10 MB per container).
+- **Only local port.** Port 3000 is bound to `127.0.0.1`; friends reach the game only through the
+  tunnel.
+
+## 6. Check voice from a phone on mobile data
+
+Home Wi-Fi often hides TURN problems, because two browsers on friendly networks connect directly.
+Mobile networks usually need the relay, so test there once after setup and after changing TURN
+settings:
+
+1. On your phone, **turn Wi-Fi off** so it uses mobile data. Open your `PUBLIC_ORIGIN` and sign in.
+2. Open a room, then open **Connection test** under the voice controls and tap **Test connection**.
+   It fetches fresh TURN credentials and asks the relay for addresses, without using the microphone.
+   - **TURN relay: UDP** (or TCP/TLS) means the relay answered. The result should be green.
+   - **TURN relay: no answer** means the credentials or the TURN server are wrong (see
+     Troubleshooting). **not configured** means `TURN_PROVIDER=none` or missing keys.
+   - **STUN: yes** means the phone found its public address. That alone is not enough on most
+     mobile networks.
+3. For an end-to-end check, join voice on the phone and on a computer at home, in the same room. Each
+   person in the voice list gets a small badge once connected (hover or long-press it for details):
+   **LAN** = same network, **P2P** = direct over the internet, **TURN** = relayed. On mobile data
+   you will usually see **TURN** or **P2P**; both are fine if you can hear each other.
+4. To force the relay and prove it carries audio, open the game on the computer with
+   `?voiceRelay=1` added to the address (for example `https://hexhaven.yourdomain.com/?voiceRelay=1`)
+   and join voice again. Every badge must show **TURN** and audio must still work.
 
 ## Backups
 
 All game data lives in one SQLite database inside the Docker volume `hexhaven_hexhaven-data`.
 
-- **While running** (safe, uses SQLite's online backup):
+**Back up** while the game is running (uses SQLite's online backup, then checks the copy):
 
-  ```bash
-  sh deploy/backup.sh      # writes deploy/backups/hexhaven-<date>-<time>.sqlite
-  ```
+```bash
+sh deploy/backup.sh      # → deploy/backups/hexhaven-<date>-<time>.sqlite, keeps the newest 14
+KEEP=30 sh deploy/backup.sh   # keep 30 instead (KEEP=0 keeps all)
+```
 
-  To back up every night, add a cron job with `crontab -e`:
-  `0 4 * * * cd /path/to/hexhaven && sh deploy/backup.sh`. Copy the backups to another disk or a cloud
-  drive now and then.
+Nightly backups with cron (`crontab -e`), adjusting the path:
 
-- **Restore**:
+```cron
+17 4 * * * cd /path/to/hexhaven && sh deploy/backup.sh >> deploy/backups/backup.log 2>&1
+```
 
-  ```bash
-  docker compose -f deploy/docker-compose.yml stop app
-  docker compose -f deploy/docker-compose.yml cp deploy/backups/<file>.sqlite app:/data/hexhaven.sqlite
-  docker compose -f deploy/docker-compose.yml run --rm --user root app \
-    sh -c 'rm -f /data/hexhaven.sqlite-wal /data/hexhaven.sqlite-shm; chown node:node /data/hexhaven.sqlite'
-  docker compose -f deploy/docker-compose.yml start app
-  ```
+`deploy/backups/` is on the same disk as the game. Copy it to another disk or a cloud drive now and
+then.
+
+**Restore** a backup (stops the app, checks the file, swaps the database, starts the app again; if the
+file is damaged nothing is changed):
+
+```bash
+sh deploy/restore.sh deploy/backups/hexhaven-20250101-041700.sqlite
+```
+
+Games in progress since that backup are lost, so restore between game nights.
 
 ## Updating
 
 ```bash
-sh deploy/backup.sh                       # just in case
-git pull
-docker compose -f deploy/docker-compose.yml up -d --build
-docker image prune -f                     # optional: remove old images
+sh deploy/backup.sh                                     # 1. back up first
+git pull                                                # 2. get the new version
+diff <(grep -o '^#* *[A-Z_]*=' .env.example | tr -d '# ' | sort) \
+     <(grep -o '^#* *[A-Z_]*=' .env | tr -d '# ' | sort)  # 3. new settings? (lines with <; bash)
+docker compose -f deploy/docker-compose.yml pull cloudflared   # 4. newer tunnel image
+docker compose -f deploy/docker-compose.yml up -d --build      # 5. rebuild and restart
+docker compose -f deploy/docker-compose.yml ps                 # 6. wait for "healthy"
+docker image prune -f                                   # optional: remove old images
 ```
 
-The database survives updates because it lives in the volume, not in the image. Read `.env.example`
-after pulling, because new settings may appear there.
+Add `--profile coturn` to steps 4–5 (and `pull coturn`) if you run your own TURN server. The database
+survives updates because it lives in the volume, not in the image; the server applies database
+migrations by itself on start.
+
+**Rolling back:** `git checkout <previous-commit>`, then `docker compose ... up -d --build`. If the new
+version had already migrated the database, also restore the backup from step 1 with
+`deploy/restore.sh`.
 
 ## Troubleshooting
 
-**The site doesn't load.** Run `docker compose -f deploy/docker-compose.yml logs cloudflared`. A
-"Unauthorized" error means `TUNNEL_TOKEN` is wrong. In Zero Trust → Tunnels, the tunnel should say
-**Healthy**. Check that the public hostname points to `http://app:3000` and that the app container is
-healthy (`ps`).
+**The site doesn't load (tunnel down).**
 
-**Google sign-in button fails** with an "origin_mismatch" or "invalid client" error. The Authorized
-JavaScript origin must match `PUBLIC_ORIGIN` exactly, including `https://` and without a trailing
-slash. Google can take a few minutes to apply changes.
+- `docker compose -f deploy/docker-compose.yml ps`: the app must be **healthy** and cloudflared
+  **running**. cloudflared waits for a healthy app, so an app problem also keeps the tunnel down.
+- `docker compose -f deploy/docker-compose.yml logs --tail 50 cloudflared`: "Unauthorized" or "token is
+  not valid" means `TUNNEL_TOKEN` is wrong. Repeated "connection failed" lines mean this machine can't
+  reach Cloudflare (internet or firewall; outbound port 7844 must be allowed).
+- In Zero Trust → Networks → Tunnels the tunnel should say **Healthy**, and its public hostname must
+  point to `http://app:3000`.
+- Error 502/1033 in the browser: the tunnel is up but cannot reach the app. Check the app log.
+- Restart both with `docker compose -f deploy/docker-compose.yml restart`.
+
+**Google sign-in fails ("origin_mismatch", "invalid client", or the button does nothing).** The
+**Authorized JavaScript origin** in the Google console must match `PUBLIC_ORIGIN` exactly: same
+`https://`, same host name, no trailing slash, no path. If you changed the hostname, update both,
+then restart the app (`docker compose ... up -d`). Google can take a few minutes to apply changes.
+"Access blocked: app is in testing" means the account is not in the consent screen's test users;
+"This account is not on the guest list" from the game means it is not in `ALLOWED_EMAILS`.
 
 **Voice: "Microphone access was blocked".** Browsers only allow the microphone on `https://` pages (or
 `http://localhost`). Click the lock or site-settings icon next to the address and allow the microphone,
 then turn the mic on again. On macOS, also check **System Settings → Privacy & Security → Microphone**
 for your browser.
 
-**Voice: you can't hear someone.**
+**Voice: "Voice chat is full".** The room already has `VOICE_MAX_PEERS` people in voice (8 by
+default). Raise it in `.env` and restart the app, but every extra person adds an upload stream for
+everyone, which phones notice.
+
+**Voice: no audio / you can't hear someone.**
 
 - If the game shows a "Click to enable audio" button, click it. Browsers block sound until you interact
-  with the page.
-- Check that the other player's mic is on. Their row shows a crossed-out mic icon when it is off.
-  Also check their volume slider.
-- A peer whose status dot stays orange or red never connected. That usually means a TURN problem:
-  - Run `docker compose -f deploy/docker-compose.yml logs app | grep voice`. Look for "falling back to
-    STUN only", which means the Cloudflare TURN credentials are wrong or missing.
-  - In Chrome, open `chrome://webrtc-internals` in a new tab during a call. Under the connection, find
-    the **selected candidate pair**. `relay` means TURN is in use. If no pair succeeds and you see no
-    `relay` candidates at all, TURN isn't working. In Firefox, use `about:webrtc`.
-  - To test TURN on purpose, open the game with `?voiceRelay=1&debug=1` added to the address. This
-    forces every voice connection through the relay. Then run `await __hexVoice.candidates()` in the
-    browser console. It should show `relay/...` for each peer.
-- For coturn: run `docker compose -f deploy/docker-compose.yml logs coturn`, check the router port
-  forwards, and check that `COTURN_EXTERNAL_IP` is your current public IP.
+  with the page. On phones, check the ringer/silent switch and media volume.
+- Check that the other player's mic is on (their row shows a crossed-out mic when it is off) and
+  their volume slider.
+- A peer whose status dot stays orange or red never connected. That is almost always TURN:
+  - Run the **Connection test** (step 6) on the affected device. "TURN relay: no answer" or "not
+    configured" confirms it.
+  - `docker compose -f deploy/docker-compose.yml logs app | grep -i -E 'voice|turn|ice'`: "falling back
+    to STUN only" means the Cloudflare TURN key ID or API token is wrong or missing.
+  - In Chrome, `chrome://webrtc-internals` (Firefox: `about:webrtc`) during a call shows the
+    **selected candidate pair**. No succeeded pair and no `relay` candidates means TURN isn't working.
+  - For coturn: `docker compose -f deploy/docker-compose.yml logs coturn`, check the router port
+    forwards, and check that `COTURN_EXTERNAL_IP` is your current public IP.
+- Voice reconnects by itself after short network drops (it renegotiates a peer connection that has been
+  down for 5 seconds, and re-joins voice when the game's connection comes back). If a peer stays red,
+  leave and re-join voice.
 
 **Voice stops after a few hours.** TURN credentials expire after `TURN_TTL_SEC`. The game fetches new
 ones when a connection fails, but leaving and re-joining voice also refreshes them.

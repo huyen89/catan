@@ -3,8 +3,19 @@
 # Settings come from ../.env (copy .env.example). See docs/DEPLOY.md.
 name: hexhaven
 
+# Shared hardening: no privilege escalation, small rotated logs.
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: local
+    options:
+      max-size: 10m
+      max-file: '3'
+
 services:
   app:
+    <<: *hardening
     build:
       context: ..
       dockerfile: deploy/Dockerfile
@@ -12,22 +23,44 @@ services:
     env_file: ../.env
     environment:
       # Fixed inside the container; the volume below holds the database.
+      # The server refuses to start in production without PUBLIC_ORIGIN (set it in .env).
+      NODE_ENV: production
       PORT: '3000'
       DB_PATH: /data/hexhaven.sqlite
       WEB_DIST: /app/apps/web/dist
+    # Runs as the unprivileged `node` user (see Dockerfile) on a read-only root filesystem.
+    user: node
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
     volumes:
       - hexhaven-data:/data
     # Only reachable from this machine; friends come in through the tunnel.
     ports:
       - '127.0.0.1:3000:3000'
     init: true
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
     restart: unless-stopped
+    stop_grace_period: 15s
 
   cloudflared:
+    <<: *hardening
     image: cloudflare/cloudflared:latest
     command: tunnel --no-autoupdate run
     # cloudflared reads TUNNEL_TOKEN from the environment.
     env_file: ../.env
+    read_only: true
+    cap_drop: [ALL]
     depends_on:
       app:
         condition: service_healthy
@@ -37,10 +70,16 @@ services:
   #   docker compose -f deploy/docker-compose.yml --profile coturn up -d
   # Needs UDP 3478 and UDP 49160-49200 forwarded on your router to this machine.
   coturn:
+    <<: *hardening
     profiles: [coturn]
     image: coturn/coturn:latest
     network_mode: host
     env_file: ../.env
+    read_only: true
+    tmpfs:
+      - /var/lib/coturn:size=16m
+      - /var/tmp:size=1m
+      - /tmp:size=16m
     volumes:
       - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
     # The shared secret and realm come from .env, never from the committed config file.
