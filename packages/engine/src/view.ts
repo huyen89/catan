@@ -191,6 +191,7 @@ export function redactEvent(e: GameEvent, viewer: Seat | null): GameEvent | null
     case 'boughtDev':
       return viewer === e.seat ? e : { ...e, card: null };
     default:
-      return e;
+      // Fail closed: an event classified 'redacted' without a case above is hidden entirely.
+      return EVENT_VISIBILITY[e.type] === 'public' ? e : null;
   }
 }
