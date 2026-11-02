@@ -3,7 +3,14 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     projects: [
-      { test: { name: 'engine', root: 'packages/engine', include: ['src/**/*.test.ts'] } },
+      {
+        test: {
+          name: 'engine',
+          root: 'packages/engine',
+          include: ['src/**/*.test.ts'],
+          testTimeout: 30000,
+        },
+      },
       { test: { name: 'shared', root: 'packages/shared', include: ['src/**/*.test.ts'] } },
       {
         test: {

@@ -6,7 +6,7 @@ import type { GameEvent, GameState, PlayerView, PublicPlayer, Seat } from './typ
 
 /**
  * Redacted view for one viewer. NEVER includes: rng, devDeck order, opponents' hands or dev cards
- * (until game over). Every new GameState field must be classified here (see REVIEW_CHECKLIST.md).
+ * (until game over). Public: board, robber, pieces, bank, turn, phase, trades, awards, winner. Every new GameState field must be classified here (see REVIEW_CHECKLIST.md).
  */
 export function toPlayerView(state: GameState, viewer: Seat | null): PlayerView {
   const over = state.phase.kind === 'gameOver';
@@ -31,21 +31,23 @@ export function toPlayerView(state: GameState, viewer: Seat | null): PlayerView 
     return pub;
   });
 
+  // Deep copies: a consumer mutating its view must never reach the authoritative GameState.
   return {
     viewer,
     version: state.version,
-    config: state.config,
-    board: state.board,
+    config: { ...state.config },
+    board: structuredClone(state.board),
     robber: state.robber,
-    buildings: state.buildings,
-    roads: state.roads,
+    buildings: structuredClone(state.buildings),
+    roads: { ...state.roads },
     players,
     bank: { ...state.bank },
     devDeckCount: state.devDeck.length,
-    setupOrder: state.setupOrder,
-    turn: state.turn,
-    phase: state.phase,
-    trades: state.trades,
+    setupOrder: [...state.setupOrder],
+    turn: structuredClone(state.turn),
+    phase: structuredClone(state.phase),
+    // Trade offers are public: every seat sees who offers what to whom and the responses.
+    trades: structuredClone(state.trades),
     longestRoad: state.longestRoad,
     largestArmy: state.largestArmy,
     winner: state.winner,
