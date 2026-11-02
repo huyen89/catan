@@ -1,6 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { RoomInfo } from '@hexhaven/shared';
 import { getSocket } from '../net/socket';
+import { runIceTest } from './iceTest';
+import {
+  ROUTE_LABEL,
+  iceTestVerdict,
+  routeDescription,
+  routeKind,
+  type IceTestResult,
+} from './logic';
 import { useVoiceStore, type PeerVoice } from './store';
 import './VoiceBar.css';
 
@@ -64,6 +72,100 @@ function MicIcon({ off }: { off: boolean }) {
   );
 }
 
+function RouteBadge({ peer }: { peer: PeerVoice }) {
+  if (!peer.route || peer.connection !== 'connected') return null;
+  const kind = routeKind(peer.route);
+  const description = routeDescription(peer.route);
+  return (
+    <span
+      className={`vb-route vb-route--${kind}`}
+      data-testid={`voice-route-${peer.userId}`}
+      data-route={kind}
+      title={description}
+      aria-label={description}
+      role="img"
+    >
+      {ROUTE_LABEL[kind].short}
+    </span>
+  );
+}
+
+const yesNo = (v: boolean) => (v ? 'yes' : 'no');
+
+function ConnectionTest() {
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<IceTestResult | null>(null);
+  const [failed, setFailed] = useState(false);
+  const alive = useRef(true);
+  useEffect(
+    () => () => {
+      alive.current = false;
+    },
+    [],
+  );
+
+  const run = () => {
+    if (running) return;
+    setRunning(true);
+    setFailed(false);
+    runIceTest().then(
+      (r) => {
+        if (!alive.current) return;
+        setResult(r);
+        setRunning(false);
+      },
+      () => {
+        if (!alive.current) return;
+        setFailed(true);
+        setRunning(false);
+      },
+    );
+  };
+
+  const verdict = result && iceTestVerdict(result);
+  const relays = result
+    ? (['udp', 'tcp', 'tls'] as const).filter((p) => result.relay[p]).map((p) => p.toUpperCase())
+    : [];
+  if (result?.relay.unknown) relays.push('yes');
+
+  return (
+    <details className="vb-diag">
+      <summary>Connection test</summary>
+      <button
+        type="button"
+        className="vb-btn vb-btn--quiet"
+        data-testid="voice-test-connection"
+        disabled={running || typeof RTCPeerConnection === 'undefined'}
+        onClick={run}
+      >
+        {running ? 'Testing…' : 'Test connection'}
+      </button>
+      <div role="status" aria-live="polite">
+        {failed && <p className="vb-note">The test could not run in this browser.</p>}
+        {result && verdict && (
+          <div className={`vb-diag-result vb-diag-result--${verdict.level}`}>
+            <p className="vb-diag-verdict">{verdict.message}</p>
+            <dl className="vb-diag-list" data-testid="voice-test-result">
+              <dt>STUN (public address)</dt>
+              <dd>{yesNo(result.stun)}</dd>
+              <dt>TURN relay</dt>
+              <dd>
+                {relays.length > 0
+                  ? relays.join(', ')
+                  : result.turnConfigured
+                    ? 'no answer'
+                    : 'not configured'}
+              </dd>
+              <dt>Time</dt>
+              <dd>{(result.ms / 1000).toFixed(1)} s</dd>
+            </dl>
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
 function PeerRow({ peer, name }: { peer: PeerVoice; name: string }) {
   const setVolume = useVoiceStore((s) => s.setVolume);
   return (
@@ -82,11 +184,14 @@ function PeerRow({ peer, name }: { peer: PeerVoice; name: string }) {
       <span className={`vb-name${peer.speaking ? ' vb-name--speaking' : ''}`} title={name}>
         {name}
       </span>
-      {peer.muted && (
-        <span className="vb-peer-muted" role="img" aria-label={`${name} is muted`}>
-          <MicIcon off />
-        </span>
-      )}
+      <span className="vb-badges">
+        <RouteBadge peer={peer} />
+        {peer.muted && (
+          <span className="vb-peer-muted" role="img" aria-label={`${name} is muted`}>
+            <MicIcon off />
+          </span>
+        )}
+      </span>
       <input
         className="vb-volume"
         type="range"
@@ -210,6 +315,8 @@ export function VoiceBar({ names }: VoiceBarProps = {}) {
           {peerList.length === 0 && <li className="vb-note">No one else is in voice yet.</li>}
         </ul>
       )}
+
+      <ConnectionTest />
     </section>
   );
 }

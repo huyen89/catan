@@ -135,3 +135,208 @@ export function joinErrorMessage(code: string | undefined): string {
       return 'Could not join voice.';
   }
 }
+
+/** Mic states of the peers listed in a voice:join ack (authoritative at join time). */
+export function mutedFromAck(
+  peers: ReadonlyArray<{ userId: string; muted: boolean }>,
+): Map<string, boolean> {
+  return new Map(peers.map((p) => [p.userId, p.muted] as const));
+}
+
+// ------------------------------------------------------------------ ICE restart policy
+
+/** How long ICE may stay 'disconnected' before we restart it (it often recovers by itself). */
+export const ICE_DISCONNECTED_GRACE_MS = 5000;
+
+/**
+ * What to do when a peer's ICE connection state changes: restart after the returned delay
+ * (0 = now), or `null` to cancel any pending restart.
+ */
+export function iceRestartDelay(state: RTCIceConnectionState): number | null {
+  if (state === 'failed') return 0;
+  if (state === 'disconnected') return ICE_DISCONNECTED_GRACE_MS;
+  return null;
+}
+
+// ------------------------------------------------------------------ candidate types
+
+export type CandidateType = 'host' | 'srflx' | 'prflx' | 'relay';
+export type RelayProtocol = 'udp' | 'tcp' | 'tls';
+
+const CANDIDATE_TYPES: readonly string[] = ['host', 'srflx', 'prflx', 'relay'];
+
+function asCandidateType(v: unknown): CandidateType | null {
+  return typeof v === 'string' && CANDIDATE_TYPES.includes(v) ? (v as CandidateType) : null;
+}
+
+/** Fields of an RTCIceCandidate (or an RTCIceCandidateStats entry) we care about. */
+export interface CandidateLike {
+  candidate?: string;
+  type?: string | null;
+  candidateType?: string | null;
+  relayProtocol?: string | null;
+  url?: string | null;
+}
+
+export interface CandidateInfo {
+  type: CandidateType | null;
+  /** For relay candidates: the transport between the browser and the TURN server. */
+  relayProtocol: RelayProtocol | null;
+}
+
+/** Relay transport from the TURN URL the candidate came from (turns: = TLS). */
+function relayProtocolFromUrl(url: string | null | undefined): RelayProtocol | null {
+  if (!url) return null;
+  if (/^turns:/i.test(url)) return 'tls';
+  const m = /[?&]transport=(udp|tcp)/i.exec(url);
+  return m ? (m[1]!.toLowerCase() as RelayProtocol) : null;
+}
+
+/**
+ * Normalizes a gathered candidate or a candidate stats entry. Browsers differ in which
+ * fields they fill, so the SDP `candidate:` line is the fallback for the type.
+ */
+export function candidateInfo(c: CandidateLike): CandidateInfo {
+  let type = asCandidateType(c.type) ?? asCandidateType(c.candidateType);
+  if (!type && c.candidate) type = asCandidateType(/\styp\s(\w+)/.exec(c.candidate)?.[1]);
+  let relayProtocol: RelayProtocol | null = null;
+  if (type === 'relay') {
+    const rp = c.relayProtocol?.toLowerCase();
+    relayProtocol = rp === 'udp' || rp === 'tcp' || rp === 'tls' ? rp : relayProtocolFromUrl(c.url);
+  }
+  return { type, relayProtocol };
+}
+
+// ------------------------------------------------------------------ connection self-test
+
+export interface IceTestResult {
+  /** The ICE endpoint answered (false = STUN-only fallback was used). */
+  iceFetched: boolean;
+  /** The server handed out at least one turn:/turns: URL. */
+  turnConfigured: boolean;
+  /** A server-reflexive candidate was gathered: STUN works and the public address is known. */
+  stun: boolean;
+  /** Relay candidates by transport; `unknown` = the browser did not say which. */
+  relay: Record<RelayProtocol | 'unknown', boolean>;
+  ms: number;
+}
+
+export function hasTurnServer(iceServers: readonly RTCIceServer[]): boolean {
+  return iceServers.some((s) =>
+    (Array.isArray(s.urls) ? s.urls : [s.urls]).some((u) => /^turns?:/i.test(u)),
+  );
+}
+
+export function summarizeIceTest(input: {
+  iceFetched: boolean;
+  iceServers: readonly RTCIceServer[];
+  candidates: readonly CandidateLike[];
+  ms: number;
+}): IceTestResult {
+  const relay = { udp: false, tcp: false, tls: false, unknown: false };
+  let stun = false;
+  for (const c of input.candidates) {
+    const info = candidateInfo(c);
+    if (info.type === 'srflx') stun = true;
+    if (info.type === 'relay') relay[info.relayProtocol ?? 'unknown'] = true;
+  }
+  return {
+    iceFetched: input.iceFetched,
+    turnConfigured: hasTurnServer(input.iceServers),
+    stun,
+    relay,
+    ms: Math.max(0, Math.round(input.ms)),
+  };
+}
+
+export interface IceTestVerdict {
+  level: 'ok' | 'warn' | 'error';
+  message: string;
+}
+
+/** Plain-language outcome of the connection test. */
+export function iceTestVerdict(r: IceTestResult): IceTestVerdict {
+  const anyRelay = Object.values(r.relay).some(Boolean);
+  if (anyRelay) {
+    return { level: 'ok', message: 'Relay server reachable: voice should work on any network.' };
+  }
+  const problem = !r.iceFetched
+    ? 'Could not get voice server details from the game server'
+    : !r.turnConfigured
+      ? 'No relay (TURN) server is configured'
+      : 'The relay (TURN) server did not answer';
+  if (r.stun) {
+    return {
+      level: 'warn',
+      message: `${problem}: voice works on most home Wi-Fi but may fail on mobile data or strict networks.`,
+    };
+  }
+  return {
+    level: 'error',
+    message: `${problem}, and no public address was found. Check your connection or firewall.`,
+  };
+}
+
+// ------------------------------------------------------------------ selected route per peer
+
+export interface PeerRoute {
+  local: CandidateType;
+  remote: CandidateType;
+  /** Our side's relay transport when the local candidate is a relay. */
+  relayProtocol: RelayProtocol | null;
+}
+
+type StatsEntry = Record<string, unknown>;
+
+/**
+ * The candidate pair in use, from an RTCStatsReport's entries. Uses the transport's
+ * selectedCandidatePairId (spec), else a `selected` pair (Firefox), else a nominated
+ * succeeded pair.
+ */
+export function selectedRoute(entries: Iterable<StatsEntry>): PeerRoute | null {
+  const byId = new Map<string, StatsEntry>();
+  const pairs: StatsEntry[] = [];
+  let selectedId: string | null = null;
+  for (const s of entries) {
+    if (typeof s.id === 'string') byId.set(s.id, s);
+    if (s.type === 'candidate-pair') pairs.push(s);
+    if (s.type === 'transport' && typeof s.selectedCandidatePairId === 'string') {
+      selectedId = s.selectedCandidatePairId;
+    }
+  }
+  const pair =
+    (selectedId ? byId.get(selectedId) : undefined) ??
+    pairs.find((p) => p.selected === true) ??
+    pairs.find((p) => p.nominated === true && p.state === 'succeeded');
+  if (!pair) return null;
+  const local = byId.get(String(pair.localCandidateId)) as CandidateLike | undefined;
+  const remote = byId.get(String(pair.remoteCandidateId)) as CandidateLike | undefined;
+  if (!local || !remote) return null;
+  const l = candidateInfo(local);
+  const r = candidateInfo(remote);
+  if (!l.type || !r.type) return null;
+  return { local: l.type, remote: r.type, relayProtocol: l.relayProtocol };
+}
+
+export type RouteKind = 'host' | 'srflx' | 'relay';
+
+/** Coarse route for a badge: relayed if either side relays, direct via NAT, or local. */
+export function routeKind(route: PeerRoute): RouteKind {
+  const types = [route.local, route.remote];
+  if (types.includes('relay')) return 'relay';
+  if (types.includes('srflx') || types.includes('prflx')) return 'srflx';
+  return 'host';
+}
+
+export const ROUTE_LABEL: Record<RouteKind, { short: string; long: string }> = {
+  host: { short: 'LAN', long: 'Direct (same network)' },
+  srflx: { short: 'P2P', long: 'Direct over the internet' },
+  relay: { short: 'TURN', long: 'Relayed through the TURN server' },
+};
+
+export function routeDescription(route: PeerRoute): string {
+  const kind = routeKind(route);
+  const via =
+    kind === 'relay' && route.relayProtocol ? ` over ${route.relayProtocol.toUpperCase()}` : '';
+  return `${ROUTE_LABEL[kind].long}${via} (${route.local} → ${route.remote})`;
+}

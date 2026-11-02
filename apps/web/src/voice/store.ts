@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { getSocket } from '../net/socket';
 import { VoiceManager } from './VoiceManager';
+import type { PeerRoute } from './logic';
 
 export interface PeerVoice {
   userId: string;
@@ -9,6 +10,8 @@ export interface PeerVoice {
   muted: boolean;
   /** 0..1 local playback volume. */
   volume: number;
+  /** Candidate pair carrying the audio once connected (null until known). */
+  route: PeerRoute | null;
 }
 
 export interface VoiceState {
