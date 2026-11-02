@@ -267,6 +267,8 @@ export class Room {
     for (const s of this.seats)
       if (s.kind === 'human' && s.userId !== this.hostUserId && this.isConnected(s.userId!))
         return s.userId;
+    // Spectators may only inherit host powers in the lobby, never over a running game.
+    if (this.status !== 'lobby') return null;
     for (const m of this.members.values())
       if (m.userId !== this.hostUserId && m.sockets.size > 0) return m.userId;
     return null;
