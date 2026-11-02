@@ -94,18 +94,24 @@ describe('engine property tests', () => {
   }, 30_000);
 
   it('property: random games for 3, 4, 5 and 6 players reach gameOver', () => {
+    // Most sampled games (>= 80%) must actually finish; the rest may hit the step cap.
+    const MAX_STEPS = 6000;
+    let finished = 0;
+    let total = 0;
     for (const players of [3, 4, 5, 6]) {
       fc.assert(
         fc.property(seedArb, (seed) => {
-          const game = playRandomGame(seed, players, 6000);
-          if (game.state.phase.kind === 'gameOver') {
-            expect(game.state.winner).toBe(game.state.phase.winner);
-            expect(game.events.at(-1)?.type).toBe('gameOver');
-          } else expect(game.log).toHaveLength(6000);
+          const game = playRandomGame(seed, players, MAX_STEPS);
+          total++;
+          if (game.state.phase.kind !== 'gameOver') return;
+          finished++;
+          expect(game.state.winner).toBe(game.state.phase.winner);
+          expect(game.events.at(-1)?.type).toBe('gameOver');
         }),
-        { numRuns: 2 },
+        { numRuns: 3 },
       );
     }
+    expect(finished / total).toBeGreaterThanOrEqual(0.8);
   }, 30_000);
 
   it('property: every action listed by getLegal for a pending actor succeeds', () => {

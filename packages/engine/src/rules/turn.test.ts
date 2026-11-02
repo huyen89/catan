@@ -8,7 +8,7 @@ import { eventsOf, expectOk, expectRejected } from '../test/expect';
 import type { GameState } from '../types';
 
 describe('end of turn (RULES.md#turn)', () => {
-  it('passes to the next seat, merges new dev cards and resets the turn', () => {
+  it('passes to the next seat and resets the turn; bought cards ripen on the owner’s next turn', () => {
     const s = inPhase(newGame(4), { kind: 'main' }, 3);
     s.turn.dice = [3, 4];
     s.turn.devPlayed = true;
@@ -16,9 +16,15 @@ describe('end of turn (RULES.md#turn)', () => {
     const { state, events } = expectOk(s, 3, { type: 'END_TURN' });
     expect(state.turn).toEqual({ current: 0, number: 2, dice: null, devPlayed: false });
     expect(state.phase).toEqual({ kind: 'preRoll' });
-    expect(state.players[3]!.devCards).toEqual(['knight']);
-    expect(state.players[3]!.newDevCards).toEqual([]);
+    expect(state.players[3]!.newDevCards).toEqual(['knight']);
     expect(events).toEqual([{ type: 'turnStarted', seat: 0, turn: 2 }]);
+    let t = state;
+    for (const seat of [0, 1, 2])
+      t = expectOk(inPhase(t, { kind: 'main' }, seat), seat, { type: 'END_TURN' }).state;
+    expect(t.turn.current).toBe(3);
+    expect(t.players[3]!.devCards).toEqual(['knight']);
+    expect(t.players[3]!.newDevCards).toEqual([]);
+    expect(getLegal(t, 3).actions).toContain('PLAY_KNIGHT');
   });
 
   it('rejects END_TURN out of turn or before rolling', () => {
@@ -189,6 +195,22 @@ describe('winning (RULES.md#winning)', () => {
     expect(state.turn.current).toBe(2);
     expect(state.phase).toEqual({ kind: 'gameOver', winner: 2 });
     expect(events.map((e) => e.type)).toEqual(['turnStarted', 'gameOver']);
+  });
+
+  it('nobody wins during the special building phase, not even the player who just ended', () => {
+    // Seat 1 (turn.current, already ended) sits at 10 VP while seat 2 builds: no win yet.
+    let s = inPhase(newGame(5), { kind: 'specialBuild', seat: 2, queue: [] }, 1);
+    for (const v of ['-2,0,N', '2,-2,S', '-1,2,S', '0,0,N']) putBuilding(s, 1, v, 'city');
+    s.players[1]!.devCards = ['victoryPoint', 'victoryPoint'];
+    give(s, 2, COSTS.devCard);
+    const r = expectOk(s, 2, { type: 'BUY_DEV' });
+    expect(r.state.phase.kind).toBe('specialBuild');
+    expect(r.state.winner).toBeNull();
+    expect(eventsOf(r.events, 'gameOver')).toEqual([]);
+    s = expectOk(r.state, 2, { type: 'PASS_SPECIAL_BUILD' }).state;
+    // Next regular turn is seat 2's (seat 1 ended), so still no winner.
+    expect(s.turn.current).toBe(2);
+    expect(s.winner).toBeNull();
   });
 
   it('respects a custom vpToWin', () => {

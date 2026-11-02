@@ -146,6 +146,32 @@ describe('domestic trade (RULES.md#trading)', () => {
     expect(eventsOf(events, 'traded')[0]).toMatchObject({ offerId: 2, a: 1, b: 0 });
   });
 
+  it('the active player may have at most 3 open offers', () => {
+    let s = tradeState();
+    for (let i = 0; i < 3; i++) s = expectOk(s, 0, offer()).state;
+    expect(getLegal(s, 0).actions).not.toContain('OFFER_TRADE');
+    expectRejected(s, 0, offer(), 'INVALID_TRADE');
+    s = expectOk(s, 0, { type: 'CANCEL_TRADE', offerId: 2 }).state;
+    expect(getLegal(s, 0).actions).toContain('OFFER_TRADE');
+    expectOk(s, 0, offer());
+  });
+
+  it('a new counter-offer replaces the same seat’s previous counter to that offer', () => {
+    let s = expectOk(tradeState(), 0, offer()).state;
+    const counter = (n: number) =>
+      offer({ give: r({ ore: n }), want: r({ brick: 1 }), counterTo: 1 });
+    s = expectOk(s, 1, counter(1)).state;
+    s = expectOk(s, 2, counter(1)).state;
+    const { state, events } = expectOk(s, 1, counter(2));
+    expect(state.trades.map((t) => [t.id, t.from])).toEqual([
+      [1, 0],
+      [3, 2],
+      [4, 1],
+    ]);
+    expect(state.trades[2]!.give.ore).toBe(2);
+    expect(eventsOf(events, 'tradeCancelled')).toEqual([{ type: 'tradeCancelled', offerId: 2 }]);
+  });
+
   it('cancel and end of turn close offers', () => {
     let s = expectOk(tradeState(), 0, offer()).state;
     expectRejected(s, 1, { type: 'CANCEL_TRADE', offerId: 1 }, 'NOT_YOUR_TURN');

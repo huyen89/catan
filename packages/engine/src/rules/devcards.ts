@@ -74,8 +74,10 @@ export function roadBuildingCount(state: GameState, graph: BoardGraph, seat: Sea
 const playRoadBuilding: Handler<'PLAY_ROAD_BUILDING'> = (ctx) => {
   const bad = playCard(ctx, 'roadBuilding');
   if (bad) return bad;
+  // Refuse rather than waste the card when no free road could be placed.
   const remaining = roadBuildingCount(ctx.state, ctx.graph, ctx.seat);
-  if (remaining > 0) ctx.state.phase = { kind: 'roadBuilding', remaining };
+  if (remaining === 0) return err('DEV_CARD_NOT_PLAYABLE', 'No road can be built');
+  ctx.state.phase = { kind: 'roadBuilding', remaining };
 };
 
 const playYearOfPlenty: Handler<'PLAY_YEAR_OF_PLENTY'> = (ctx, a) => {

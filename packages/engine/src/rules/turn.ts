@@ -42,9 +42,7 @@ const endTurn: Handler<'END_TURN'> = (ctx) => {
   if (bad) return bad;
   for (const t of s.trades) ctx.events.push({ type: 'tradeCancelled', offerId: t.id });
   s.trades = [];
-  const p = s.players[ctx.seat]!;
-  p.devCards.push(...p.newDevCards);
-  p.newDevCards = [];
+  // Dev cards bought this turn ripen at the start of the owner's next turn (startTurn).
   s.turn.devPlayed = false;
   s.turn.dice = null;
   if (!ctx.variant.specialBuildPhase) {

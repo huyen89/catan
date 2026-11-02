@@ -1,6 +1,6 @@
 import { graphFor, type BoardGraph } from './hex/topology';
 import { COSTS, hasResources, totalResources } from './resources';
-import { bankCanPay, playableDevCards } from './rules/devcards';
+import { bankCanPay, playableDevCards, roadBuildingCount } from './rules/devcards';
 import { canTradeMaritime } from './rules/maritime';
 import {
   buildableRoadEdges,
@@ -11,7 +11,7 @@ import {
   setupSettlementVertices,
 } from './rules/placement';
 import { robberTargets } from './rules/robber';
-import { confirmablePartners } from './rules/trade';
+import { confirmablePartners, MAX_OPEN_OFFERS, openOffersBy } from './rules/trade';
 import {
   RESOURCES,
   type ActionType,
@@ -52,10 +52,12 @@ function addBuildOptions(out: LegalSummary, state: GameState, graph: BoardGraph,
 }
 
 /** Dev cards that would succeed for some payload. */
-function addDevOptions(out: LegalSummary, state: GameState, seat: Seat): void {
+function addDevOptions(out: LegalSummary, state: GameState, graph: BoardGraph, seat: Seat): void {
   const bankHasTwo = RESOURCES.some((a) => RESOURCES.some((b) => bankCanPay(state.bank, [a, b])));
   const cards: DevCardType[] = playableDevCards(state, seat).filter(
-    (c) => c !== 'yearOfPlenty' || bankHasTwo,
+    (c) =>
+      (c !== 'yearOfPlenty' || bankHasTwo) &&
+      (c !== 'roadBuilding' || roadBuildingCount(state, graph, seat) > 0),
   );
   out.playableDev = cards;
   const ACTION: Record<string, ActionType> = {
@@ -74,7 +76,9 @@ function addTradeOptions(out: LegalSummary, state: GameState, seat: Seat): void 
   const own = state.trades.filter((t) => t.from === seat);
   const addressed = state.trades.filter((t) => Object.hasOwn(t.responses, String(seat)));
   if (seat === current) {
-    if (hasCards && state.players.length > 1) out.actions.push('OFFER_TRADE');
+    if (hasCards && openOffersBy(state, seat).length < MAX_OPEN_OFFERS) {
+      out.actions.push('OFFER_TRADE');
+    }
     if (own.some((t) => confirmablePartners(state, t).length > 0))
       out.actions.push('CONFIRM_TRADE');
   } else if (hasCards && addressed.some((t) => t.from === current && t.counterTo === null)) {
@@ -118,7 +122,7 @@ export function getLegal(state: GameState, seat: Seat): LegalSummary {
     case 'preRoll':
       if (!isCurrent) break;
       out.actions.push('ROLL');
-      addDevOptions(out, state, seat);
+      addDevOptions(out, state, graph, seat);
       break;
     case 'discard':
       out.discardCount = ph.pending[String(seat)] ?? 0;
@@ -142,7 +146,7 @@ export function getLegal(state: GameState, seat: Seat): LegalSummary {
     case 'main':
       if (isCurrent) {
         addBuildOptions(out, state, graph, seat);
-        addDevOptions(out, state, seat);
+        addDevOptions(out, state, graph, seat);
         if (canTradeMaritime(state, seat)) out.actions.push('MARITIME_TRADE');
       }
       addTradeOptions(out, state, seat);

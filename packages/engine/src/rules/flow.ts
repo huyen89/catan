@@ -59,10 +59,15 @@ export function pay(ctx: Ctx, seat: Seat, item: keyof typeof COSTS): EngineError
   return undefined;
 }
 
-/** Declare the current player the winner if they have reached vpToWin. */
+/**
+ * Declare the current player the winner if they have reached vpToWin. Only during their own turn:
+ * not in setup, and not in the Special Building Phase (turn.current has already ended their turn;
+ * anyone who got there wins at the start of their own turn instead).
+ */
 export function checkVictory(ctx: Ctx): void {
   const s = ctx.state;
-  if (s.phase.kind === 'setup' || s.phase.kind === 'gameOver') return;
+  const k = s.phase.kind;
+  if (k === 'setup' || k === 'gameOver' || k === 'specialBuild') return;
   const seat = s.turn.current;
   if (totalVP(s, seat) < s.config.vpToWin) return;
   s.phase = { kind: 'gameOver', winner: seat };

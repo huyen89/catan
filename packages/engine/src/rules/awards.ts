@@ -42,18 +42,24 @@ export function longestTrail(pieces: Pieces, graph: BoardGraph, seat: Seat): num
 /**
  * Recompute every player's longest trail and reassign the longest-road award:
  * - nobody below LONGEST_ROAD_MIN holds it;
- * - the holder keeps it while tied for the longest;
+ * - the holder keeps it while tied for the longest, unless the holder's own road was just broken
+ *   (its length dropped): then only a single strictly-longest player gets it, else nobody;
  * - otherwise it goes to the unique longest player, or to nobody on a tie.
  */
 export function updateLongestRoad(ctx: Ctx): void {
   const s = ctx.state;
+  const before = s.longestRoad === null ? 0 : s.players[s.longestRoad]!.longestRoadLength;
   for (const p of s.players) p.longestRoadLength = longestTrail(s, ctx.graph, p.seat);
   const max = Math.max(...s.players.map((p) => p.longestRoadLength));
   const leaders = s.players.filter((p) => p.longestRoadLength === max).map((p) => p.seat);
+  const holderBroken =
+    s.longestRoad !== null && s.players[s.longestRoad]!.longestRoadLength < before;
   let holder: Seat | null;
   if (max < LONGEST_ROAD_MIN) holder = null;
-  else if (s.longestRoad !== null && leaders.includes(s.longestRoad)) holder = s.longestRoad;
-  else holder = leaders.length === 1 ? leaders[0]! : null;
+  else if (leaders.length === 1) holder = leaders[0]!;
+  else if (s.longestRoad !== null && leaders.includes(s.longestRoad) && !holderBroken) {
+    holder = s.longestRoad;
+  } else holder = null;
   if (holder !== s.longestRoad) {
     s.longestRoad = holder;
     ctx.events.push({ type: 'awardChanged', award: 'longestRoad', holder });

@@ -136,12 +136,38 @@ describe('longest road award (RULES.md#awards)', () => {
     expect(events).toEqual([{ type: 'awardChanged', award: 'longestRoad', holder: null }]);
   });
 
-  it('holder broken but still tied for longest keeps it', () => {
+  it('holder broken into a tie with another player → nobody (A 7 / B 6, A cut to 6)', () => {
+    const { s, paths } = withPaths([7, 6]);
+    s.longestRoad = 0;
+    recompute(s); // caches the current lengths
+    expect(s.longestRoad).toBe(0);
+    s.buildings[paths[0]![6]!] = { owner: 2, kind: 'settlement' };
+    const events = recompute(s);
+    expect(s.players[0]!.longestRoadLength).toBe(6);
+    expect(s.players[1]!.longestRoadLength).toBe(6);
+    expect(s.longestRoad).toBeNull();
+    expect(events).toEqual([{ type: 'awardChanged', award: 'longestRoad', holder: null }]);
+  });
+
+  it('holder broken but still strictly longest keeps it', () => {
     const { s, paths } = withPaths([7, 5]);
     s.longestRoad = 0;
-    s.buildings[paths[0]![2]!] = { owner: 1, kind: 'settlement' };
     recompute(s);
-    expect(s.players[0]!.longestRoadLength).toBe(5);
+    s.buildings[paths[0]![1]!] = { owner: 1, kind: 'settlement' };
+    recompute(s);
+    expect(s.players[0]!.longestRoadLength).toBe(6);
+    expect(s.longestRoad).toBe(0);
+  });
+
+  it('someone catching up (holder not broken) does not take it', () => {
+    const { s, paths } = withPaths([6, 5]);
+    s.longestRoad = 0;
+    recompute(s);
+    // Extend seat 1's path by one road at its end to tie at 6.
+    const [end, next] = walk(g, paths[1]!.at(-1)!, 1, new Set(paths[1]));
+    putRoad(s, 1, edgeBetween(g, end!, next!));
+    recompute(s);
+    expect(s.players[1]!.longestRoadLength).toBe(6);
     expect(s.longestRoad).toBe(0);
   });
 

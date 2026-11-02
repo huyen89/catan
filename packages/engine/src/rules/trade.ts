@@ -9,6 +9,13 @@ import {
 import { RESOURCES, type EngineError, type GameState, type Seat, type TradeOffer } from '../types';
 import { counts, expectPhase, expectSeat, withVictoryCheck } from './flow';
 
+/** Most open offers the active player may have at once (counter-offers are capped separately). */
+export const MAX_OPEN_OFFERS = 3;
+
+/** Open (non-counter) offers made by `seat`. */
+export const openOffersBy = (state: GameState, seat: Seat): TradeOffer[] =>
+  state.trades.filter((t) => t.from === seat && t.counterTo === null);
+
 /** Both hands still cover their side of the offer if `partner` takes it. */
 export function tradeExecutable(state: GameState, offer: TradeOffer, partner: Seat): boolean {
   return (
@@ -79,6 +86,9 @@ const offerTrade: Handler<'OFFER_TRADE'> = (ctx, a) => {
   if (a.counterTo === null) {
     const notYours = expectSeat(ctx, s.turn.current);
     if (notYours) return notYours;
+    if (openOffersBy(s, ctx.seat).length >= MAX_OPEN_OFFERS) {
+      return err('INVALID_TRADE', `At most ${MAX_OPEN_OFFERS} open offers; cancel one first`);
+    }
     if (a.to === null) to = null;
     else {
       const valid = others(s, ctx.seat);
@@ -113,6 +123,14 @@ const offerTrade: Handler<'OFFER_TRADE'> = (ctx, a) => {
   }
   if (!hasResources(s.players[ctx.seat]!.resources, give)) {
     return err('INSUFFICIENT_RESOURCES', 'You do not hold what you offer');
+  }
+
+  // One counter per seat per original offer: a new counter replaces the previous one.
+  if (a.counterTo !== null) {
+    for (const old of s.trades.filter((t) => t.from === ctx.seat && t.counterTo === a.counterTo)) {
+      ctx.events.push({ type: 'tradeCancelled', offerId: old.id });
+    }
+    s.trades = s.trades.filter((t) => !(t.from === ctx.seat && t.counterTo === a.counterTo));
   }
 
   const recipients = to ?? others(s, ctx.seat);

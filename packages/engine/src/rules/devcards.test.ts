@@ -124,7 +124,7 @@ describe('dev cards (RULES.md#development-cards)', () => {
     expect(d).toBeDefined();
   });
 
-  it('road building with one road left gives one; with no legal edge it ends at once', () => {
+  it('road building with one road left gives one; it is refused with no road to build', () => {
     const s = withCards({ kind: 'main' }, ['roadBuilding']);
     const g = graphFor(s.board);
     const [a, b] = walk(g, '0,0,N', 1);
@@ -137,9 +137,13 @@ describe('dev cards (RULES.md#development-cards)', () => {
     ).toEqual({ kind: 'main' });
 
     const none = withCards({ kind: 'main' }, ['roadBuilding']); // no network at all
-    const r = expectOk(none, 0, { type: 'PLAY_ROAD_BUILDING' }).state;
-    expect(r.phase).toEqual({ kind: 'main' });
-    expect(r.turn.devPlayed).toBe(true);
+    expect(getLegal(none, 0).playableDev).toEqual([]);
+    expect(getLegal(none, 0).actions).not.toContain('PLAY_ROAD_BUILDING');
+    expectRejected(none, 0, { type: 'PLAY_ROAD_BUILDING' }, 'DEV_CARD_NOT_PLAYABLE');
+    const noRoads = structuredClone(s);
+    noRoads.players[0]!.roadsLeft = 0;
+    expect(getLegal(noRoads, 0).actions).not.toContain('PLAY_ROAD_BUILDING');
+    expectRejected(noRoads, 0, { type: 'PLAY_ROAD_BUILDING' }, 'DEV_CARD_NOT_PLAYABLE');
   });
 
   it('road building stops early when the network is boxed in', () => {
