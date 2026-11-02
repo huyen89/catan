@@ -85,6 +85,7 @@ export const MIGRATIONS: readonly string[] = [
   CREATE INDEX chat_room ON chat_messages(room_id, id);
   `,
   // 2: persisted kick list, per-game seat roster with final VP, and turn count for history.
+  // Games created before this migration are not backfilled (no deployed data existed yet).
   `
   CREATE TABLE room_kicks (
     room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,

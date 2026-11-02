@@ -92,15 +92,23 @@ describe('REST origin check', () => {
 });
 
 describe('socket limits', () => {
-  it('rate-limits room creation', async () => {
-    srv = await startServer();
+  it('rate-limits room creation per user across sockets (relaxed in TEST_MODE)', async () => {
+    srv = await startServer({ testMode: false });
     const a = await player(srv.url, 'A');
+    const second = await connect(srv.url, a.cookie);
+    const b = await player(srv.url, 'B');
     const codes: string[] = [];
-    for (let i = 0; i < 4; i++) {
-      const r = await emit(a.socket, 'room:create', {});
+    for (const s of [a.socket, second, a.socket, second]) {
+      const r = await emit(s, 'room:create', {});
       codes.push(r.ok ? 'ok' : r.error.code);
     }
     expect(codes).toEqual(['ok', 'ok', 'ok', 'RATE_LIMITED']);
+    expect((await emit(b.socket, 'room:create', {})).ok).toBe(true);
+    await srv.close();
+
+    srv = await startServer();
+    const t = await player(srv.url, 'T');
+    for (let i = 0; i < 6; i++) await ok(t.socket, 'room:create', {});
   });
 
   it('drops oversized socket packets', async () => {

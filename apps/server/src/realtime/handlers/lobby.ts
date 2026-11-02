@@ -2,17 +2,19 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { RoomManager } from '../../rooms/RoomManager';
 import { AppError } from '../../errors';
 import { on } from '../handle';
-import { createBucket } from '../rateLimit';
+import type { KeyedBuckets } from '../rateLimit';
 import type { HexSocket } from '../types';
 
 export function registerLobbyHandlers(
   socket: HexSocket,
   rooms: RoomManager,
   log: FastifyBaseLogger,
+  /** room:create limiter keyed by userId, shared across the user's sockets. */
+  creates: KeyedBuckets,
 ): void {
-  const creates = createBucket();
   on(socket, 'room:create', log, (p) => {
-    if (!creates.take()) throw new AppError('RATE_LIMITED', 'Too many rooms created');
+    if (!creates.take(socket.data.userId))
+      throw new AppError('RATE_LIMITED', 'Too many rooms created');
     return rooms.create(socket, p.settings);
   });
   on(socket, 'room:join', log, (p) => rooms.join(socket, p.code));

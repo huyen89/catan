@@ -9,7 +9,7 @@ import { registerChatHandlers } from './handlers/chat';
 import { registerGameHandlers } from './handlers/game';
 import { registerLobbyHandlers } from './handlers/lobby';
 import { registerVoiceHandlers } from './handlers/voice';
-import { messageBucket } from './rateLimit';
+import { createBuckets, messageBucket } from './rateLimit';
 import { ioRooms, type HexServer, type HexSocket } from './types';
 
 export interface SocketServer {
@@ -32,6 +32,7 @@ export function createSocketServer(
     maxHttpBufferSize: 100_000,
   });
   const bySession = new Map<string, Set<HexSocket>>();
+  const roomCreates = createBuckets(config.testMode);
 
   io.use((socket, next) => {
     const origin = socket.handshake.headers.origin;
@@ -73,7 +74,7 @@ export function createSocketServer(
             ack({ ok: false, error: { code: 'RATE_LIMITED', message: 'Too many messages' } });
           }
         });
-        registerLobbyHandlers(socket, rooms, log);
+        registerLobbyHandlers(socket, rooms, log, roomCreates);
         registerGameHandlers(socket, rooms, log);
         registerChatHandlers(socket, rooms, log);
         registerVoiceHandlers(io, socket, rooms.voiceHooks);

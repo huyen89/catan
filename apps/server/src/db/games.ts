@@ -15,7 +15,7 @@ export interface GameRow {
   engineVersion: number;
   createdAt: number;
   finishedAt: number | null;
-  /** turn.number when the game ended; null while active. */
+  /** Latest turn.number (updated at every turn end); null only for pre-M3 rows. */
   turns: number | null;
 }
 
@@ -72,9 +72,13 @@ interface RawAction {
 
 export interface GamesRepo {
   create(
-    g: Omit<GameRow, 'status' | 'winner' | 'finishedAt' | 'turns' | 'roomCode'>,
+    g: Omit<GameRow, 'status' | 'winner' | 'finishedAt' | 'roomCode'> & { turns: number },
     players: Array<Omit<GamePlayerRow, 'vp'>>,
   ): void;
+  /** Record the current turn number (cheap; called with each turn-end snapshot). */
+  setTurns(gameId: string, turns: number): void;
+  /** A kicked player's seat was handed to a bot mid-game: it no longer counts as theirs. */
+  releaseSeat(gameId: string, seat: number, botName: string): void;
   get(id: string): GameRow | null;
   activeForRoom(roomId: string): GameRow | null;
   appendAction(gameId: string, a: ActionRow): void;
@@ -91,18 +95,14 @@ export interface GamesRepo {
     userId: string,
     opts: { limit?: number; status?: GameRow['status'] },
   ): Array<GameRow & { players: GamePlayerRow[] }>;
-  /** turn.number of the latest snapshot (for active games). */
-  latestTurn(gameId: string): number | null;
-  /** Every recorded action, in order. */
-  allActions(gameId: string): ActionRow[];
   latestSnapshot(gameId: string): GameState | null;
   actionsFrom(gameId: string, fromIdx: number): ActionRow[];
 }
 
 export function createGamesRepo(db: Database.Database): GamesRepo {
   const insertGame = db.prepare(
-    `INSERT INTO games (id, room_id, config_json, seed, status, winner, engine_version, created_at)
-     VALUES (?, ?, ?, ?, 'active', NULL, ?, ?)`,
+    `INSERT INTO games (id, room_id, config_json, seed, status, winner, engine_version, created_at,
+       turns) VALUES (?, ?, ?, ?, 'active', NULL, ?, ?, ?)`,
   );
   const SELECT_GAME =
     'SELECT games.*, rooms.code AS room_code FROM games JOIN rooms ON rooms.id = games.room_id';
@@ -118,15 +118,20 @@ export function createGamesRepo(db: Database.Database): GamesRepo {
   const playersOf = db.prepare<[string], RawPlayer>(
     'SELECT * FROM game_players WHERE game_id = ? ORDER BY seat',
   );
-  const listForUser = db.prepare<[string, string | null, string | null, number], RawGame>(
-    `${SELECT_GAME}
-     WHERE EXISTS (SELECT 1 FROM game_players gp WHERE gp.game_id = games.id AND gp.user_id = ?)
-       AND (? IS NULL OR games.status = ?)
-     ORDER BY games.created_at DESC, games.id LIMIT ?`,
+  const USER_GAMES = `
+     WHERE EXISTS (SELECT 1 FROM game_players gp WHERE gp.game_id = games.id AND gp.user_id = @userId)
+       AND (@status IS NULL OR games.status = @status)
+     ORDER BY games.created_at DESC, games.id LIMIT @limit`;
+  type ListParams = { userId: string; status: string | null; limit: number };
+  const listForUser = db.prepare<[ListParams], RawGame>(`${SELECT_GAME} ${USER_GAMES}`);
+  // Rosters of the same page of games in one query.
+  const rostersForUser = db.prepare<[ListParams], RawPlayer>(
+    `SELECT * FROM game_players WHERE game_id IN (SELECT games.id FROM games ${USER_GAMES})
+     ORDER BY game_id, seat`,
   );
-  const latestTurn = db.prepare<[string], { turn: number | null }>(
-    `SELECT json_extract(state_json, '$.turn.number') AS turn FROM game_snapshots
-     WHERE game_id = ? ORDER BY version DESC LIMIT 1`,
+  const setTurns = db.prepare('UPDATE games SET turns = ? WHERE id = ?');
+  const releaseSeat = db.prepare(
+    `UPDATE game_players SET kind = 'bot', user_id = NULL, name = ? WHERE game_id = ? AND seat = ?`,
   );
   const insertAction = db.prepare(
     `INSERT INTO game_actions (game_id, idx, seat, actor, action_json, events_json, ts)
@@ -183,7 +188,7 @@ export function createGamesRepo(db: Database.Database): GamesRepo {
   return {
     create: db.transaction(
       (
-        g: Omit<GameRow, 'status' | 'winner' | 'finishedAt' | 'turns' | 'roomCode'>,
+        g: Omit<GameRow, 'status' | 'winner' | 'finishedAt' | 'roomCode'> & { turns: number },
         players: Array<Omit<GamePlayerRow, 'vp'>>,
       ) => {
         insertGame.run(
@@ -193,6 +198,7 @@ export function createGamesRepo(db: Database.Database): GamesRepo {
           g.seed,
           g.engineVersion,
           g.createdAt,
+          g.turns,
         );
         for (const p of players) insertPlayer.run(g.id, p.seat, p.kind, p.userId, p.name);
       },
@@ -221,12 +227,22 @@ export function createGamesRepo(db: Database.Database): GamesRepo {
       },
     ),
     players: (gameId) => playersOf.all(gameId).map(toPlayer),
-    listForUser: (userId, { limit = 50, status }) =>
-      listForUser
-        .all(userId, status ?? null, status ?? null, limit)
-        .map((r) => ({ ...toGame(r)!, players: playersOf.all(r.id).map(toPlayer) })),
-    latestTurn: (gameId) => latestTurn.get(gameId)?.turn ?? null,
-    allActions: (gameId) => actionsFrom.all(gameId, 0).map(toAction),
+    setTurns: (gameId, turns) => void setTurns.run(turns, gameId),
+    releaseSeat: (gameId, seat, botName) => void releaseSeat.run(botName, gameId, seat),
+    listForUser: db.transaction(
+      (userId: string, { limit = 50, status }: { limit?: number; status?: GameRow['status'] }) => {
+        const params = { userId, status: status ?? null, limit };
+        const rosters = new Map<string, GamePlayerRow[]>();
+        for (const r of rostersForUser.all(params)) {
+          const list = rosters.get(r.game_id);
+          if (list) list.push(toPlayer(r));
+          else rosters.set(r.game_id, [toPlayer(r)]);
+        }
+        return listForUser
+          .all(params)
+          .map((r) => ({ ...toGame(r)!, players: rosters.get(r.id) ?? [] }));
+      },
+    ),
     latestSnapshot: (gameId) => {
       const r = latestSnapshot.get(gameId);
       return r ? (JSON.parse(r.state_json) as GameState) : null;

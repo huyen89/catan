@@ -17,7 +17,7 @@ const gameParams = z.strictObject({ id: z.uuid() });
 
 type GameWithPlayers = GameRow & { players: GamePlayerRow[] };
 
-function summarize(repos: Repos, g: GameWithPlayers, userId: string): GameSummary {
+function summarize(g: GameWithPlayers, userId: string): GameSummary {
   const mine = g.players.find((p) => p.userId === userId);
   return {
     gameId: g.id,
@@ -33,7 +33,7 @@ function summarize(repos: Repos, g: GameWithPlayers, userId: string): GameSummar
       userId: p.userId,
       vp: g.status === 'finished' ? p.vp : null,
     })),
-    turns: g.turns ?? repos.games.latestTurn(g.id) ?? 0,
+    turns: g.turns ?? 0,
     createdAt: g.createdAt,
     finishedAt: g.finishedAt,
   };
@@ -104,7 +104,7 @@ export async function registerHistoryRoutes(
   app.get('/api/games', routeOpts, async (req): Promise<GameListResponse> => {
     const userId = req.user!.id;
     const games = repos.games.listForUser(userId, { limit: GAME_LIST_LIMIT });
-    return { games: games.map((g) => summarize(repos, g, userId)) };
+    return { games: games.map((g) => summarize(g, userId)) };
   });
 
   app.get('/api/games/:id/replay', routeOpts, async (req): Promise<ReplayResponse> => {
@@ -120,12 +120,12 @@ export async function registerHistoryRoutes(
       throw new AppError('GAME_NOT_FINISHED', 'Replays are available once the game is over', 403);
     }
     return {
-      summary: summarize(repos, { ...game, players }, userId),
+      summary: summarize({ ...game, players }, userId),
       config: game.config,
       seed: game.seed,
       engineVersion: game.engineVersion,
       actions: repos.games
-        .allActions(id)
+        .actionsFrom(id, 0)
         .map((a) => ({ seat: a.seat, action: a.action, ts: a.ts })),
     };
   });

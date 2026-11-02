@@ -251,7 +251,11 @@ export class GameRunner {
         events: res.events,
         ts,
       });
-      if (action.type === 'END_TURN' || over) repos.games.saveSnapshot(this.gameId, next);
+      if (action.type === 'END_TURN' || over) {
+        repos.games.saveSnapshot(this.gameId, next);
+        if (next.turn.number !== prev.turn.number)
+          repos.games.setTurns(this.gameId, next.turn.number);
+      }
       if (over) {
         const end = res.events.find((e) => e.type === 'gameOver');
         repos.games.finish(this.gameId, {

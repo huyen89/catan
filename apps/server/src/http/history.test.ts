@@ -167,6 +167,7 @@ describe('history REST', () => {
           seed: `s${i}`,
           engineVersion: 0,
           createdAt: 1000 + i,
+          turns: 1,
         },
         [{ seat: 0, kind: 'human', userId: me.userId, name: 'Me' }],
       );

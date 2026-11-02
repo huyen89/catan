@@ -12,9 +12,11 @@ import {
   next,
   ok,
   player,
+  sleep,
   startServer,
   type TestServer,
 } from '../testing/harness';
+import type { StatsResponse } from '@hexhaven/shared';
 import type { EngineApi } from './engineApi';
 
 let servers: TestServer[] = [];
@@ -123,6 +125,102 @@ describe('room:rematch', () => {
     const again = await ok(host.socket, 'room:join', { code: room.code });
     expect(again.status).toBe('finished');
     await ok(host.socket, 'room:rematch', {});
+  });
+});
+
+describe('rematch and kicks: review fixes', () => {
+  /** Host END_TURN, then seats 1 and 2 are bot-driven: the 3-turn fake game ends on its own. */
+  async function hostEndsFirstTurn(host: { socket: Parameters<typeof ok>[0] }) {
+    const finished = next(host.socket, 'room:state', (r) => r.status === 'finished');
+    await ok(host.socket, 'game:action', { expectedVersion: 0, action: { type: 'END_TURN' } });
+    return finished;
+  }
+
+  it('opens the seats of humans who left before the rematch', async () => {
+    const srv = await boot({}, { engine: createFakeEngine({ turnsToWin: 3 }) });
+    const { host, b } = await lobbyOfThree(srv);
+    await ok(host.socket, 'room:start', {});
+    await ok(b.socket, 'room:leave', {}); // seat 1 is now driven by the bot
+    await hostEndsFirstTurn(host);
+
+    const lobby = next(host.socket, 'room:state', (r) => r.status === 'lobby');
+    await ok(host.socket, 'room:rematch', {});
+    expect((await lobby).seats.map((s) => s.kind)).toEqual(['human', 'open', 'bot']);
+    // The departed player was not banned: they can come back and sit again.
+    await ok(b.socket, 'room:join', { code: (await lobby).code });
+    await ok(b.socket, 'room:sit', { seat: 1 });
+    await ok(b.socket, 'room:ready', { ready: true });
+    await ok(host.socket, 'room:start', {});
+  });
+
+  it("a kick mid-game hands the seat's result to the bot in history and stats", async () => {
+    const srv = await boot({}, { engine: createFakeEngine({ turnsToWin: 3 }) });
+    const { host, b, room } = await lobbyOfThree(srv);
+    await ok(host.socket, 'room:start', {});
+    const gameId = srv.server.rooms.get(room.id)!.gameId!;
+    await ok(host.socket, 'room:kick', { userId: b.userId });
+    expect(srv.server.repos.games.players(gameId)[1]).toMatchObject({
+      kind: 'bot',
+      userId: null,
+      name: 'Bot 2',
+    });
+    await hostEndsFirstTurn(host);
+
+    const get = (path: string, cookie: string) =>
+      fetch(`${srv.url}${path}`, { headers: { cookie } });
+    expect(await (await get('/api/games', b.cookie)).json()).toEqual({ games: [] });
+    expect((await get(`/api/games/${gameId}/replay`, b.cookie)).status).toBe(404);
+    const stats = (await (await get('/api/stats', host.cookie)).json()) as StatsResponse;
+    expect(stats.played).toBe(1);
+    expect(stats.opponents).toEqual([]);
+  });
+
+  it('a finished room loaded only for a rejected join does not stay in memory', async () => {
+    const srv = await boot({}, { engine: createFakeEngine({ turnsToWin: 3 }), lobbyIdleMs: 50 });
+    const { host, b, room } = await lobbyOfThree(srv);
+    await ok(host.socket, 'room:kick', { userId: b.userId });
+    await ok(host.socket, 'room:addBot', { seat: 1, difficulty: 'easy' });
+    await ok(host.socket, 'room:start', {});
+    await hostEndsFirstTurn(host);
+    await ok(host.socket, 'room:leave', {});
+    await sleep(150);
+    expect(srv.server.rooms.get(room.id)).toBeUndefined();
+
+    expect(await emit(b.socket, 'room:join', { code: room.code })).toMatchObject({
+      ok: false,
+      error: { code: 'KICKED' },
+    });
+    expect(srv.server.rooms.get(room.id)).toBeDefined();
+    await sleep(150);
+    expect(srv.server.rooms.get(room.id)).toBeUndefined();
+  });
+
+  it('a rematch lobby that survives a restart is marked finished, keeping its history', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'hexhaven-'));
+    const dbPath = join(dir, 'rematch.sqlite');
+    try {
+      const first = await boot({ dbPath }, { engine: createFakeEngine({ turnsToWin: 3 }) });
+      const { host, b, room } = await lobbyOfThree(first);
+      await ok(host.socket, 'room:start', {});
+      const gameId = first.server.rooms.get(room.id)!.gameId!;
+      await ok(host.socket, 'room:kick', { userId: b.userId });
+      await hostEndsFirstTurn(host);
+      await ok(host.socket, 'room:rematch', {});
+      expect(first.server.repos.rooms.byId(room.id)!.status).toBe('lobby');
+      await first.close();
+      servers = servers.filter((s) => s !== first);
+
+      const second = await boot({ dbPath });
+      expect(second.server.repos.rooms.byId(room.id)!.status).toBe('finished');
+      expect(second.server.repos.games.get(gameId)!.status).toBe('finished');
+      const socket = await connect(second.url, host.cookie);
+      expect((await ok(socket, 'room:join', { code: room.code })).status).toBe('finished');
+      await ok(socket, 'room:rematch', {});
+    } finally {
+      for (const s of servers) await s.close().catch(() => undefined);
+      servers = [];
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

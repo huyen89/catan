@@ -70,6 +70,8 @@ export class RoomManager {
     if (!row || row.status === 'in_game') return null;
     const room = this.hydrate(row);
     this.register(room);
+    // Nobody is in it yet: if the join that loaded it fails (e.g. KICKED), it is dropped again.
+    this.scheduleIdle(room);
     return room;
   }
 
@@ -252,10 +254,9 @@ export class RoomManager {
       if (room.members.size > 0 || room.status === 'in_game') return;
       this.dispose(room);
       if (room.status !== 'lobby') return;
-      // A rematch lobby keeps its row: deleting it would cascade away the game history.
-      if (this.deps.repos.rooms.hasGames(room.id))
+      // A rematch lobby keeps its row (and game history); it reopens as a finished room.
+      if (!this.deps.repos.rooms.deleteIfNoGames(room.id))
         this.deps.repos.rooms.setStatus(room.id, 'finished', Date.now());
-      else this.deps.repos.rooms.delete(room.id);
     }, this.deps.lobbyIdleMs ?? DEFAULT_LOBBY_IDLE_MS);
   }
 
@@ -323,10 +324,18 @@ export class RoomManager {
     if (!member && room.seatOf(targetId) < 0) {
       throw new AppError('USER_NOT_FOUND', 'That user is not in this room');
     }
+    const { repos } = this.deps;
+    const seatIdx = room.seatOf(targetId);
     room.kicked.add(targetId);
-    this.deps.repos.rooms.addKick(room.id, targetId);
     this.clearGrace(room, targetId);
     const seated = room.vacateSeat(targetId);
+    const midGame = seated && room.status === 'in_game' && room.gameId && !room.runner?.isOver;
+    repos.tx(() => {
+      repos.rooms.addKick(room.id, targetId);
+      if (seated) this.persist(room);
+      // A bot finishes the game for them: the result is not theirs (stats, head-to-head, replay).
+      if (midGame) repos.games.releaseSeat(room.gameId!, seatIdx, room.seats[seatIdx]!.name);
+    });
     for (const id of member ? [...member.sockets] : []) {
       const s = this.deps.io.sockets.sockets.get(id);
       if (!s) continue;
@@ -336,7 +345,6 @@ export class RoomManager {
       s.emit('room:closed', { reason: 'kicked' });
     }
     room.members.delete(targetId);
-    if (seated) this.persist(room);
     room.runner?.refresh();
     this.broadcast(room);
   }
@@ -357,10 +365,7 @@ export class RoomManager {
     const gameId = randomUUID();
     const now = Date.now();
     room.status = 'in_game';
-    for (const s of room.seats) {
-      s.ready = false;
-      s.controller = s.kind === 'bot' ? 'bot' : 'human';
-    }
+    room.resetSeatControl();
     repos.tx(() => {
       repos.rooms.save(room.toRow(now));
       repos.games.create(
@@ -371,6 +376,7 @@ export class RoomManager {
           seed,
           engineVersion: state.engineVersion,
           createdAt: now,
+          turns: state.turn.number,
         },
         room.seats.map((s, seat) => ({
           seat,
@@ -497,6 +503,7 @@ export class RoomManager {
   /** Boot: drop stale lobbies and resume every in-game room, paused until a human connects. */
   recover(): void {
     const { repos, engine, log } = this.deps;
+    repos.rooms.finishLobbiesWithGames(Date.now());
     repos.rooms.deleteStaleLobbies(Date.now() - STALE_LOBBY_MS);
     for (const id of repos.rooms.idsByStatus('in_game')) {
       try {

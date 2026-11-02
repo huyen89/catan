@@ -280,9 +280,18 @@ export class Room {
     return null;
   }
 
+  /** Every seat un-ready and driven by its own kind (before a game starts or a rematch). */
+  resetSeatControl(): void {
+    for (const s of this.seats) {
+      s.ready = false;
+      s.controller = s.kind === 'bot' ? 'bot' : 'human';
+    }
+  }
+
   /**
    * Host only, after the game ended: back to the lobby with the same seats. Humans must ready up
-   * again; bots (including seats a bot took over from kicked players) stay.
+   * again; bots (including seats a bot took over from kicked players) stay. Seats of humans who
+   * are gone (left, or disconnected past the grace period) open up so the lobby can fill again.
    */
   rematch(userId: string): void {
     this.assertHost(userId);
@@ -294,10 +303,12 @@ export class Room {
     this.runner?.close();
     this.runner = null;
     this.gameId = null;
-    for (const s of this.seats) {
-      s.ready = false;
-      s.controller = s.kind === 'bot' ? 'bot' : 'human';
-    }
+    this.seats = this.seats.map((s) =>
+      s.kind === 'human' && !this.members.has(s.userId!) && !this.graceTimers.has(s.userId!)
+        ? openSeat()
+        : s,
+    );
+    this.resetSeatControl();
   }
 
   /**
