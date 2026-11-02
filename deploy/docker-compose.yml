@@ -1,0 +1,57 @@
+# Hexhaven production stack. Run from the repo root:
+#   docker compose -f deploy/docker-compose.yml up -d --build
+# Settings come from ../.env (copy .env.example). See docs/DEPLOY.md.
+name: hexhaven
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: hexhaven:latest
+    env_file: ../.env
+    environment:
+      # Fixed inside the container; the volume below holds the database.
+      PORT: '3000'
+      DB_PATH: /data/hexhaven.sqlite
+      WEB_DIST: /app/apps/web/dist
+    volumes:
+      - hexhaven-data:/data
+    # Only reachable from this machine; friends come in through the tunnel.
+    ports:
+      - '127.0.0.1:3000:3000'
+    init: true
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run
+    # cloudflared reads TUNNEL_TOKEN from the environment.
+    env_file: ../.env
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Optional self-hosted TURN server (only if you don't use Cloudflare TURN):
+  #   docker compose -f deploy/docker-compose.yml --profile coturn up -d
+  # Needs UDP 3478 and UDP 49160-49200 forwarded on your router to this machine.
+  coturn:
+    profiles: [coturn]
+    image: coturn/coturn:latest
+    network_mode: host
+    env_file: ../.env
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    # The shared secret and realm come from .env, never from the committed config file.
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - >-
+        exec turnserver -c /etc/coturn/turnserver.conf
+        --static-auth-secret="$${COTURN_SECRET:?set COTURN_SECRET in .env}"
+        --realm="$${COTURN_REALM:-hexhaven}"
+        $${COTURN_EXTERNAL_IP:+--external-ip=$${COTURN_EXTERNAL_IP}}
+    restart: unless-stopped
+
+volumes:
+  hexhaven-data:

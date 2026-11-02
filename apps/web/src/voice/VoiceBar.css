@@ -1,0 +1,162 @@
+/* VoiceBar: compact voice controls for a narrow side column. Colors can be themed with --vb-*. */
+.vb {
+  --vb-accent: var(--accent, #2f9e44);
+  --vb-danger: #c92a2a;
+  --vb-surface: rgba(127, 127, 127, 0.1);
+  --vb-border: rgba(127, 127, 127, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.vb-controls {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.vb-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 3px 10px;
+  border: 1px solid var(--vb-border);
+  border-radius: 6px;
+  background: var(--vb-surface);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.vb-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.vb-btn:focus-visible,
+.vb-volume:focus-visible,
+.vb-dismiss:focus-visible {
+  outline: 2px solid var(--vb-accent);
+  outline-offset: 1px;
+}
+.vb-btn--primary {
+  border-color: var(--vb-accent);
+}
+.vb-btn--quiet {
+  background: transparent;
+}
+
+.vb-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.vb-mic {
+  flex: 1 1 auto;
+  justify-content: center;
+}
+.vb-mic--live {
+  border-color: var(--vb-accent);
+  background: color-mix(in srgb, var(--vb-accent) 18%, transparent);
+}
+.vb-mic--speaking {
+  box-shadow: 0 0 0 2px var(--vb-accent);
+}
+
+.vb-note {
+  margin: 0;
+  opacity: 0.75;
+  font-size: 12px;
+}
+
+.vb-enable {
+  width: 100%;
+  justify-content: center;
+}
+
+.vb-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  padding: 4px 6px;
+  border-left: 3px solid var(--vb-danger);
+  background: color-mix(in srgb, var(--vb-danger) 12%, transparent);
+  font-size: 12px;
+}
+.vb-error > span {
+  flex: 1;
+}
+.vb-dismiss {
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.vb-peers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.vb-peer {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto minmax(48px, 72px);
+  align-items: center;
+  gap: 6px;
+}
+
+.vb-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #adb5bd;
+}
+.vb-status--connected {
+  background: var(--vb-accent);
+}
+.vb-status--connecting,
+.vb-status--new {
+  background: #e8a10c;
+}
+.vb-status--disconnected,
+.vb-status--failed,
+.vb-status--closed {
+  background: var(--vb-danger);
+}
+
+.vb-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 4px;
+  padding: 0 3px;
+}
+.vb-name--speaking {
+  box-shadow: inset 0 0 0 1.5px var(--vb-accent);
+}
+
+.vb-peer-muted {
+  display: inline-flex;
+  opacity: 0.7;
+}
+.vb-peer-muted .vb-icon {
+  width: 13px;
+  height: 13px;
+}
+
+.vb-volume {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  accent-color: var(--vb-accent);
+}
