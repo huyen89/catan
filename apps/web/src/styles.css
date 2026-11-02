@@ -1146,6 +1146,7 @@ label {
   display: inline-grid;
   place-items: center;
   padding: 4px 6px;
+  min-width: 40px;
   color: var(--muted);
 }
 .icon-btn[aria-pressed='true'] {
@@ -1587,6 +1588,9 @@ a {
   flex-direction: column;
   gap: 8px;
   border-right: 1px solid var(--line);
+}
+.side-pane[hidden] {
+  display: none;
 }
 .side-pane .chat ol,
 .side-pane .log ol {

@@ -60,7 +60,7 @@ export function SideTabs(props: {
               role="tab"
               id={`${base}-tab-${t.id}`}
               aria-selected={selected}
-              aria-controls={selected ? `${base}-pane` : undefined}
+              aria-controls={`${base}-pane-${t.id}`}
               aria-expanded={selected}
               aria-label={badge ? `${t.label} (${badge} waiting for you)` : t.label}
               title={selected ? `Hide ${t.label.toLowerCase()}` : t.label}
@@ -80,16 +80,22 @@ export function SideTabs(props: {
           );
         })}
       </div>
-      {active && (
+      {/*
+        Every pane stays mounted (hidden when not selected): the voice bar leaves the call when it
+        unmounts, and trade drafts / chat input must survive switching tabs.
+      */}
+      {tabs.map((t) => (
         <div
+          key={t.id}
           className="side-pane"
           role="tabpanel"
-          id={`${base}-pane`}
-          aria-labelledby={`${base}-tab-${active}`}
+          id={`${base}-pane-${t.id}`}
+          aria-labelledby={`${base}-tab-${t.id}`}
+          hidden={active !== t.id}
         >
-          {panes[active]}
+          {panes[t.id]}
         </div>
-      )}
+      ))}
     </aside>
   );
 }
