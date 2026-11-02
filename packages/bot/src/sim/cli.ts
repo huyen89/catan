@@ -1,4 +1,7 @@
-/* Bot-vs-bot simulator: `pnpm sim -- --games 200 [--players 3,4,5,6] [--seed prefix]` */
+/* Bot-vs-bot simulator:
+ * `pnpm sim -- --games 200 [--players 3,4,5,6] [--seed prefix] [--difficulty normal|easy,hard,…]`
+ * (one difficulty for every seat, or a comma list assigned by seat). */
+import type { BotDifficulty } from '../index';
 import { SimError, simulateGame, type SimResult } from './simulate';
 
 function arg(name: string, fallback: string): string {
@@ -13,6 +16,15 @@ if (!Number.isInteger(games) || games <= 0) {
 }
 const playerCounts = arg('players', '3,4,5,6').split(',').map(Number);
 const prefix = arg('seed', 'sim');
+const levels = arg('difficulty', 'normal').split(',');
+if (!levels.every((d) => d === 'easy' || d === 'normal' || d === 'hard')) {
+  console.error(`--difficulty must list easy|normal|hard, got ${levels.join(',')}`);
+  process.exit(2);
+}
+const difficulty = Array.from(
+  { length: 6 },
+  (_, seat) => levels[seat % levels.length] as BotDifficulty,
+);
 
 const results: SimResult[] = [];
 const failures: string[] = [];
@@ -22,7 +34,7 @@ for (let i = 0; i < games; i++) {
   const players = playerCounts[i % playerCounts.length]!;
   const seed = `${prefix}-${i}`;
   try {
-    results.push(simulateGame(seed, players));
+    results.push(simulateGame(seed, players, { difficulty }));
   } catch (e) {
     const where = e instanceof SimError ? ` (step ${e.step})` : '';
     failures.push(`${seed} [${players}p]${where}: ${(e as Error).message}`);
@@ -37,12 +49,19 @@ const byCount = playerCounts.map((p) => {
   const avg = rs.reduce((n, r) => n + r.turns, 0) / Math.max(1, rs.length);
   return `${p}p: ${rs.length} games, avg ${avg.toFixed(1)} turns`;
 });
+const perGame = (f: (r: SimResult) => number) =>
+  (results.reduce((n, r) => n + f(r), 0) / Math.max(1, results.length)).toFixed(2);
 const winsBySeat = new Map<number, number>();
 for (const r of finished) winsBySeat.set(r.winner!, (winsBySeat.get(r.winner!) ?? 0) + 1);
 
 console.log(`Simulated ${games} games in ${((Date.now() - started) / 1000).toFixed(1)}s`);
 console.log(`finished ${finished.length}, stalled ${stalled}, errors ${failures.length}`);
 console.log(`avg turns ${avgTurns.toFixed(1)} | ${byCount.join(' | ')}`);
+console.log(
+  `trades per game: offered ${perGame((r) => r.tradesOffered)}, ` +
+    `countered ${perGame((r) => r.countersOffered)}, completed ${perGame((r) => r.tradesCompleted)} ` +
+    `(of which counters ${perGame((r) => r.countersCompleted)})`,
+);
 console.log(
   `wins by seat: ${[...winsBySeat.entries()]
     .sort((a, b) => a[0] - b[0])

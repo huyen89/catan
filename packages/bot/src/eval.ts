@@ -39,10 +39,18 @@ const boardKey = (b: PlayerView['board']): string =>
   '|' +
   b.ports.map((p) => `${p.edge}:${p.type}`).join(';');
 
+// Within one decision the same board object is looked up many times: skip re-keying it.
+const byObject = new WeakMap<PlayerView['board'], BoardInfo>();
+
 export function boardInfo(view: PlayerView): BoardInfo {
+  const same = byObject.get(view.board);
+  if (same) return same;
   const key = boardKey(view.board);
   const hit = infoCache.get(key);
-  if (hit) return hit;
+  if (hit) {
+    byObject.set(view.board, hit);
+    return hit;
+  }
   if (infoCache.size > 64) infoCache.clear();
   const info: BoardInfo = {
     graph: graphFor(view.board),
@@ -51,6 +59,7 @@ export function boardInfo(view: PlayerView): BoardInfo {
   };
   for (const p of view.board.ports) for (const v of p.vertices) info.portAt.set(v, p.type);
   infoCache.set(key, info);
+  byObject.set(view.board, info);
   return info;
 }
 
