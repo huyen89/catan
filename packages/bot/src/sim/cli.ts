@@ -7,6 +7,10 @@ function arg(name: string, fallback: string): string {
 }
 
 const games = Number(arg('games', '200'));
+if (!Number.isInteger(games) || games <= 0) {
+  console.error(`--games must be a positive integer, got ${arg('games', '200')}`);
+  process.exit(2);
+}
 const playerCounts = arg('players', '3,4,5,6').split(',').map(Number);
 const prefix = arg('seed', 'sim');
 

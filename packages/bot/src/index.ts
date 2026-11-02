@@ -1,6 +1,7 @@
 import {
   COSTS,
   RESOURCES,
+  buildableSettlementVertices,
   type Action,
   type EdgeId,
   type HexId,
@@ -14,12 +15,12 @@ import {
 import {
   argmax,
   boardInfo,
-  canAfford,
   isOpenSpot,
   missing,
   myHand,
   pips,
   scoreVertex,
+  seatProduction,
   sumCounts,
   type BuildTarget,
 } from './eval';
@@ -78,8 +79,11 @@ export function decide(view: PlayerView, opts: BotOptions): Action {
     case 'specialBuild':
       return bot.buildStep() ?? { type: 'PASS_SPECIAL_BUILD' };
     case 'main': {
-      if (view.turn.current !== me) break;
-      return bot.mainTurn();
+      if (view.turn.current === me) return bot.mainTurn();
+      // Not our turn: withdraw any counter-offer we still have open.
+      const mine = view.trades.find((t) => t.from === me);
+      if (mine && can('CANCEL_TRADE')) return { type: 'CANCEL_TRADE', offerId: mine.id };
+      break;
     }
     default:
       break;
@@ -92,6 +96,7 @@ export function decide(view: PlayerView, opts: BotOptions): Action {
 
 class Bot {
   private readonly hand: ResourceCounts;
+  private readonly production: ResourceCounts;
   private readonly can: (t: Action['type']) => boolean;
 
   constructor(
@@ -100,6 +105,7 @@ class Bot {
     private readonly opts: BotOptions,
   ) {
     this.hand = myHand(view);
+    this.production = seatProduction(view, me);
     const actions = view.legal!.actions;
     this.can = (t) => actions.includes(t);
   }
@@ -122,7 +128,9 @@ class Bot {
   // ------------------------------------------------------------ placement
 
   bestSetupVertex(): VertexId {
-    return this.pick(this.legal.settlementVertices, (v) => scoreVertex(this.view, this.me, v));
+    return this.pick(this.legal.settlementVertices, (v) =>
+      scoreVertex(this.view, this.me, v, this.production),
+    );
   }
 
   /** Score a road by the best open settlement spot it leads toward (BFS ≤ 3 steps). */
@@ -141,7 +149,7 @@ class Bot {
         const next: VertexId[] = [];
         for (const v of frontier) {
           if (isOpenSpot(this.view, v))
-            best = Math.max(best, scoreVertex(this.view, this.me, v) / (1 + d));
+            best = Math.max(best, scoreVertex(this.view, this.me, v, this.production) / (1 + d));
           const b = this.view.buildings[v];
           if (b && b.owner !== this.me) continue; // blocked
           for (const n of graph.vertexNeighbors[v] ?? []) {
@@ -166,8 +174,7 @@ class Bot {
   // ------------------------------------------------------------ robber
 
   bestRobberHex(): HexId {
-    const { graph } = boardInfo(this.view);
-    const hexes = new Map(this.view.board.hexes.map((h) => [h.id, h]));
+    const { graph, hexById: hexes } = boardInfo(this.view);
     return this.pick(this.legal.robberHexes, (h) => {
       let score = 0;
       for (const v of graph.hexVertices[h] ?? []) {
@@ -219,17 +226,25 @@ class Bot {
     );
     if (hasSettlement && me.citiesLeft > 0 && (this.hand.ore >= 2 || this.hand.grain >= 2))
       return 'city';
-    if (me.settlementsLeft > 0 && this.legal.settlementVertices.length > 0) return 'settlement';
+    if (me.settlementsLeft > 0 && this.settlementSpots().length > 0) return 'settlement';
     if (hasSettlement && me.citiesLeft > 0) return 'city';
     if (this.view.devDeckCount > 0) return 'devCard';
     return 'road';
   }
 
+  /** Spots where we could build a settlement once affordable (independent of phase). */
+  settlementSpots(): VertexId[] {
+    return buildableSettlementVertices(this.view, boardInfo(this.view).graph, this.me);
+  }
+
   wantsKnight(beforeRoll: boolean): boolean {
-    const { graph } = boardInfo(this.view);
-    const robberHurtsMe = (graph.hexVertices[this.view.robber] ?? []).some(
-      (v) => this.view.buildings[v]?.owner === this.me,
-    );
+    const { graph, hexById } = boardInfo(this.view);
+    const robberHex = hexById.get(this.view.robber);
+    const robberHurtsMe =
+      pips(robberHex?.token ?? null) > 0 &&
+      (graph.hexVertices[this.view.robber] ?? []).some(
+        (v) => this.view.buildings[v]?.owner === this.me,
+      );
     if (robberHurtsMe) return true;
     if (beforeRoll) return false;
     const mine = this.view.players[this.me]!.playedKnights + 1;
@@ -247,7 +262,9 @@ class Bot {
     if (this.can('BUILD_CITY') && L.cityVertices.length > 0 && L.canAfford.city) {
       return {
         type: 'BUILD_CITY',
-        vertex: this.pick(L.cityVertices, (v) => scoreVertex(this.view, this.me, v)),
+        vertex: this.pick(L.cityVertices, (v) =>
+          scoreVertex(this.view, this.me, v, this.production),
+        ),
       };
     }
     if (this.can('BUILD_SETTLEMENT') && L.settlementVertices.length > 0 && L.canAfford.settlement) {
@@ -263,8 +280,16 @@ class Bot {
     if (this.can('BUILD_ROAD') && L.canAfford.road && L.roadEdges.length > 0 && wantRoad) {
       return { type: 'BUILD_ROAD', edge: this.bestRoad(L.roadEdges) };
     }
+    const afterDev = {
+      ...this.hand,
+      wool: this.hand.wool - 1,
+      grain: this.hand.grain - 1,
+      ore: this.hand.ore - 1,
+    };
     const savingForCity =
-      this.target() === 'city' && L.cityVertices.length > 0 && this.hand.ore < 4;
+      this.target() === 'city' &&
+      L.cityVertices.length > 0 &&
+      sumCounts(missing(afterDev, COSTS.city)) > sumCounts(missing(this.hand, COSTS.city));
     if (this.can('BUY_DEV') && L.canAfford.devCard && !savingForCity) return { type: 'BUY_DEV' };
     return null;
   }
@@ -358,9 +383,4 @@ class Bot {
     const leaderBonus = other.publicVP >= this.view.players[this.me]!.publicVP + 2 ? 0.8 : 0;
     return afterTrade - before > 0.5 + leaderBonus;
   }
-}
-
-/** Convenience used by the server timeout path and tests. */
-export function canAffordTarget(view: PlayerView, what: BuildTarget): boolean {
-  return canAfford(myHand(view), what);
 }

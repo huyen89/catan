@@ -6,7 +6,6 @@ import {
   hasResources,
   type BoardGraph,
   type PlayerView,
-  type Resource,
   type ResourceCounts,
   type Seat,
   type VertexId,
@@ -31,18 +30,27 @@ export interface BoardInfo {
   portAt: Map<VertexId, PlayerView['board']['ports'][number]['type']>;
 }
 
-const infoCache = new WeakMap<PlayerView['board'], BoardInfo>();
+// Views are deep copies, so cache by board content rather than object identity.
+const infoCache = new Map<string, BoardInfo>();
+const boardKey = (b: PlayerView['board']): string =>
+  b.layoutId +
+  '|' +
+  b.hexes.map((h) => `${h.id}:${h.terrain}:${h.token}`).join(';') +
+  '|' +
+  b.ports.map((p) => `${p.edge}:${p.type}`).join(';');
 
 export function boardInfo(view: PlayerView): BoardInfo {
-  const hit = infoCache.get(view.board);
+  const key = boardKey(view.board);
+  const hit = infoCache.get(key);
   if (hit) return hit;
+  if (infoCache.size > 64) infoCache.clear();
   const info: BoardInfo = {
     graph: graphFor(view.board),
     hexById: new Map(view.board.hexes.map((h) => [h.id, h])),
     portAt: new Map(),
   };
   for (const p of view.board.ports) for (const v of p.vertices) info.portAt.set(v, p.type);
-  infoCache.set(view.board, info);
+  infoCache.set(key, info);
   return info;
 }
 
@@ -71,9 +79,13 @@ export function seatProduction(view: PlayerView, seat: Seat): ResourceCounts {
 }
 
 /** How valuable a settlement spot is for `seat`: production weighted by scarcity + diversity + port. */
-export function scoreVertex(view: PlayerView, seat: Seat, v: VertexId): number {
+export function scoreVertex(
+  view: PlayerView,
+  seat: Seat,
+  v: VertexId,
+  have: ResourceCounts = seatProduction(view, seat),
+): number {
   const prod = vertexProduction(view, v);
-  const have = seatProduction(view, seat);
   let score = 0;
   let kinds = 0;
   for (const r of RESOURCES) {
@@ -130,5 +142,3 @@ export function argmax<T>(items: readonly T[], score: (t: T) => number): T | und
   }
   return best;
 }
-
-export const resourceList = (): Resource[] => [...RESOURCES];
