@@ -1,0 +1,19 @@
+# Used by BuildKit for deploy/Dockerfile (build context = repo root).
+**/node_modules
+**/dist
+**/coverage
+**/*.log
+**/*.tsbuildinfo
+.git
+.github
+.claude
+.env
+.env.*
+!.env.example
+data
+**/*.sqlite
+**/*.sqlite-*
+e2e
+test-results
+playwright-report
+deploy/backups
