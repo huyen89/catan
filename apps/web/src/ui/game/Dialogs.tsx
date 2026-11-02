@@ -1,8 +1,13 @@
 import { useState } from 'react';
 import { emptyResources, totalResources, type PlayerView, type Resource } from '@hexhaven/engine';
 import { RESOURCE_LABEL, plural } from '../../game/labels';
+import { rematchRole } from '../../game/lobby';
 import { discardLimits, discardReady } from '../../game/trade';
+import { errorMessage } from '../../net/emit';
+import { emitAck } from '../../net/socket';
 import { useGameStore } from '../../store/game';
+import { useRoomStore } from '../../store/room';
+import { useSession } from '../../store/session';
 import { Modal, ResourceChoice, ResourceCounter } from '../common';
 import { ResourceIcon } from '../icons';
 import type { DevPicker } from './BottomBar';
@@ -193,15 +198,65 @@ export function GameOverOverlay(props: { view: PlayerView; onLeave(): void }) {
             </li>
           ))}
         </ol>
+        <Rematch />
         <div className="actions">
           <button type="button" className="ghost" onClick={() => setHidden(true)}>
             View board
           </button>
-          <button type="button" className="primary" onClick={props.onLeave}>
+          <button type="button" onClick={props.onLeave}>
             Back to home
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Host: "Play again" sends `room:rematch`; the button stays busy until the server's room:state
+ * (status 'lobby') swaps this screen for the lobby. Everyone else waits for the host.
+ */
+function Rematch() {
+  const room = useRoomStore((s) => s.room);
+  const userId = useSession((s) => s.user?.id);
+  const [state, setState] = useState<'idle' | 'pending'>('idle');
+  const [error, setError] = useState<string | null>(null);
+  const role = rematchRole(room, userId);
+  if (role === 'none') return null;
+  if (role === 'guest') {
+    return (
+      <p className="muted rematch-wait" data-testid="rematch-waiting" role="status">
+        Waiting for host to start a new game…
+      </p>
+    );
+  }
+  const start = async () => {
+    setState('pending');
+    setError(null);
+    try {
+      await emitAck('room:rematch', {});
+      // Success: room:state (status 'lobby') arrives and unmounts this overlay.
+    } catch (e) {
+      setError(errorMessage(e));
+      setState('idle');
+    }
+  };
+  return (
+    <div className="rematch">
+      <button
+        type="button"
+        className="primary big"
+        data-testid="rematch"
+        disabled={state === 'pending'}
+        onClick={start}
+      >
+        {state === 'pending' ? 'Starting…' : 'Play again'}
+      </button>
+      {error && (
+        <p className="error" role="alert" data-testid="rematch-error">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

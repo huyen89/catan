@@ -1134,6 +1134,23 @@ label {
   margin-left: auto;
   font-weight: 700;
 }
+.rematch {
+  margin-top: 12px;
+}
+.rematch-wait {
+  margin: 12px 0 0;
+  text-align: center;
+}
+.icon-btn {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  padding: 4px 6px;
+  color: var(--muted);
+}
+.icon-btn[aria-pressed='true'] {
+  color: var(--danger);
+}
 .show-results {
   position: fixed;
   right: 360px;

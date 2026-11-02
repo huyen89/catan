@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { computeHighlights } from '../../game/highlights';
 import { phasePrompt } from '../../game/prompt';
 import { offersAwaitingMe } from '../../game/trade';
+import { SoundToggle } from '../../sound/SoundToggle';
 import { remainingMs } from '../../store/gameMerge';
 import { useGameStore } from '../../store/game';
 import { useRoomStore } from '../../store/room';
@@ -109,6 +110,7 @@ export function GameScreen({ header, onLeave, chatDisabled }: GameScreenProps) {
         </div>
         {me !== null && <TurnControls view={view} busy={busy} />}
         <Timer />
+        <SoundToggle />
       </header>
 
       {paused && (
