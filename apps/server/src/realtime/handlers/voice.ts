@@ -17,3 +17,11 @@ export function registerVoiceHandlers(
 ): void {
   // M0 stub
 }
+
+/**
+ * Remove a socket from its room's voice channel (if in one) and notify peers.
+ * SRV calls this when a socket leaves a room; VOX also calls it on disconnect.
+ */
+export function leaveVoice(_io: HexServer, _socket: HexSocket, _hooks: VoiceHooks): void {
+  // M0 stub
+}
