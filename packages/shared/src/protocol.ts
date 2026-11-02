@@ -26,6 +26,8 @@ export const C2S = {
   'room:kick': z.strictObject({ userId: z.string().min(1).max(64) }),
   'room:settings': z.strictObject({ settings: roomSettingsSchema.partial() }),
   'room:start': z.strictObject({}),
+  /** Host only, room status 'finished': back to the lobby with the same seats (humans un-ready). */
+  'room:rematch': z.strictObject({}),
   'game:action': z.strictObject({ expectedVersion: z.number().int().min(0), action: actionSchema }),
   'game:sync': z.strictObject({}),
   'chat:send': z.strictObject({ text: z.string().trim().min(1).max(500) }),
@@ -71,10 +73,11 @@ export interface C2SAckData {
   'room:kick': undefined;
   'room:settings': undefined;
   'room:start': undefined;
+  'room:rematch': undefined;
   'game:action': { version: number };
   'game:sync': GameStatePayload;
   'chat:send': undefined;
-  'voice:join': { peers: string[] };
+  'voice:join': { peers: VoicePeer[] };
   'voice:leave': undefined;
   'voice:signal': undefined;
   'voice:state': undefined;
@@ -98,6 +101,12 @@ export interface GameStatePayload {
   deadline: number | null;
   /** Server clock at send time, for client skew correction. */
   serverNow: number;
+}
+
+/** A user already in the voice channel when you join, with their current mic state. */
+export interface VoicePeer {
+  userId: string;
+  muted: boolean;
 }
 
 export type VoiceSignalData = C2SPayload<'voice:signal'>['data'];

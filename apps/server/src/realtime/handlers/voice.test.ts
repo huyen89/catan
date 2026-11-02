@@ -99,7 +99,10 @@ describe('voice:join', () => {
 
     expect(await join(a)).toEqual({ ok: true, data: { peers: [] } });
     const joined = next(a, 'voice:peerJoined');
-    expect(await join(b)).toEqual({ ok: true, data: { peers: ['alice'] } });
+    expect(await join(b)).toEqual({
+      ok: true,
+      data: { peers: [{ userId: 'alice', muted: true }] },
+    });
     expect(await joined).toEqual({ userId: 'bob' });
 
     await settle();
@@ -132,7 +135,10 @@ describe('voice:join', () => {
     a.on('voice:peerLeft', (p) => aEvents.push(`left:${p.userId}`));
     a.on('voice:peerJoined', (p) => aEvents.push(`joined:${p.userId}`));
 
-    expect(await join(b2)).toEqual({ ok: true, data: { peers: ['alice'] } });
+    expect(await join(b2)).toEqual({
+      ok: true,
+      data: { peers: [{ userId: 'alice', muted: true }] },
+    });
     expect(await b1Ended).toEqual({ userId: 'bob' });
     await settle();
     expect(aEvents).toEqual(['left:bob', 'joined:bob']);
@@ -144,7 +150,10 @@ describe('voice:join', () => {
     const a = await client('alice', 'r1');
     await join(a);
     const b = await client('bob', 'r1');
-    expect(await join(b)).toEqual({ ok: true, data: { peers: ['alice'] } });
+    expect(await join(b)).toEqual({
+      ok: true,
+      data: { peers: [{ userId: 'alice', muted: true }] },
+    });
   });
 });
 
