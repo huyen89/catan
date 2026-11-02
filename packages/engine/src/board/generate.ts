@@ -1,8 +1,11 @@
-import type { Board, GameConfig, Hex, Port, PortType, Terrain } from '../types';
-import { hexId } from '../hex/coords';
+import type { Board, GameConfig, Hex, HexId, Port, PortType, Terrain } from '../types';
+import { hexId, hexNeighbors } from '../hex/coords';
 import { buildGraph } from '../hex/topology';
-import { shuffle, type RngState } from '../rng';
+import { nextInt, shuffle, type RngState } from '../rng';
 import type { LayoutDef } from './layouts';
+import { placeRandomTokens } from './numbers';
+import { randomPortPositions } from './ports';
+import { SPIRAL_SEQUENCE, hexagonRadius, spiralWalk } from './spiral';
 
 /** Expand a {item: count} pool into a flat array in a stable order. */
 export function expandPool<T extends string>(pool: Readonly<Partial<Record<T, number>>>): T[] {
@@ -12,11 +15,19 @@ export function expandPool<T extends string>(pool: Readonly<Partial<Record<T, nu
   return out;
 }
 
+/** Terrains that never carry a number token. */
+const tokenless = (t: Terrain): boolean => t === 'desert' || t === 'sea';
+
 /**
- * Generate a random board. Mutates `rng`.
- * M0 baseline: shuffled terrain + shuffled tokens + fixed port slots.
- * Workstream E1 replaces internals with constrained token placement (no adjacent 6/8),
- * spiral mode and random port slots — signature stays the same.
+ * Generate a random board, mutating `rng` (same input state => same board).
+ *
+ * - Terrain: the layout's pool shuffled over all hexes (deserts may land anywhere).
+ * - Numbers: 'random' places tokens with no adjacent 6/8 and, whenever achievable within a fixed
+ *   search budget, no adjacent identical numbers. 'spiral' lays the official A..R sequence along a
+ *   spiral from a random outer corner in a random direction, skipping deserts; layouts it does not
+ *   fit (anything but the 19-hex hexagon with the standard tokens) fall back to 'random'.
+ * - Ports: 'fixed' shuffles the port types onto `layout.portSlots`; 'random' picks coastal edges
+ *   with at least one free coastal edge between any two ports.
  */
 export function generateBoard(
   layout: LayoutDef,
@@ -24,20 +35,75 @@ export function generateBoard(
   rng: RngState,
 ): Board {
   const terrains = shuffle(rng, expandPool<Terrain>(layout.terrainPool));
-  const tokens = shuffle(rng, layout.tokenPool);
-  let ti = 0;
-  const hexes: Hex[] = layout.hexes.map(({ q, r }, i) => {
-    const terrain = terrains[i]!;
-    const token = terrain === 'desert' ? null : tokens[ti++]!;
-    return { id: hexId(q, r), q, r, terrain, token };
-  });
+  if (terrains.length !== layout.hexes.length) {
+    throw new Error(
+      `Layout ${layout.id}: ${terrains.length} terrains for ${layout.hexes.length} hexes`,
+    );
+  }
+  const hexes: Hex[] = layout.hexes.map(({ q, r }, i) => ({
+    id: hexId(q, r),
+    q,
+    r,
+    terrain: terrains[i]!,
+    token: null,
+  }));
+  const landCount = hexes.filter((h) => !tokenless(h.terrain)).length;
+  if (layout.tokenPool.length !== landCount) {
+    throw new Error(
+      `Layout ${layout.id}: ${layout.tokenPool.length} tokens for ${landCount} producing hexes`,
+    );
+  }
 
+  if (config.numberMode !== 'spiral' || !placeSpiralTokens(hexes, layout, rng)) {
+    placeTokens(hexes, layout, rng);
+  }
+
+  return { layoutId: layout.id, hexes, ports: placePorts(layout, config.portMode, rng) };
+}
+
+/** 'random' number mode: constrained placement over the producing hexes. */
+function placeTokens(hexes: Hex[], layout: LayoutDef, rng: RngState): void {
+  const land = hexes.filter((h) => !tokenless(h.terrain));
+  const slotOf = new Map<HexId, number>(land.map((h, i) => [h.id, i]));
+  const neighbors = land.map((h) =>
+    hexNeighbors(h.q, h.r)
+      .map((id) => slotOf.get(id))
+      .filter((i): i is number => i !== undefined),
+  );
+  const tokens = placeRandomTokens(neighbors, layout.tokenPool, rng);
+  land.forEach((h, i) => (h.token = tokens[i]!));
+}
+
+/** 'spiral' number mode. Returns false (rng untouched) when the layout does not support it. */
+function placeSpiralTokens(hexes: Hex[], layout: LayoutDef, rng: RngState): boolean {
+  const radius = hexagonRadius(layout.hexes);
+  const sorted = (xs: readonly number[]): string => [...xs].sort((a, b) => a - b).join(',');
+  if (radius === null || sorted(layout.tokenPool) !== sorted(SPIRAL_SEQUENCE)) return false;
+
+  const corner = nextInt(rng, 0, 5);
+  const clockwise = nextInt(rng, 0, 1) === 1;
+  const byId = new Map(hexes.map((h) => [h.id, h]));
+  let next = 0;
+  for (const id of spiralWalk(radius, corner, clockwise)) {
+    const hex = byId.get(id)!;
+    if (!tokenless(hex.terrain)) hex.token = SPIRAL_SEQUENCE[next++]!;
+  }
+  return true;
+}
+
+function placePorts(layout: LayoutDef, mode: GameConfig['portMode'], rng: RngState): Port[] {
   const g = buildGraph(layout.hexes);
-  const portTypes = shuffle(rng, expandPool<PortType>(layout.portPool));
-  const ports: Port[] = layout.portSlots.map((slot, i) => {
-    const edge = g.coastEdges[slot % g.coastEdges.length]!;
-    return { type: portTypes[i]!, edge, vertices: g.edgeVertices[edge]! };
+  const types = shuffle(rng, expandPool<PortType>(layout.portPool));
+  const slots =
+    mode === 'random'
+      ? randomPortPositions(g.coastEdges.length, types.length, rng)
+      : layout.portSlots.map((s) => s % g.coastEdges.length);
+  if (slots.length !== types.length) {
+    throw new Error(`Layout ${layout.id}: ${types.length} port types for ${slots.length} slots`);
+  }
+  return slots.map((slot, i) => {
+    const edge = g.coastEdges[slot]!;
+    const [a, b] = g.edgeVertices[edge]!;
+    return { type: types[i]!, edge, vertices: [a, b] };
   });
-
-  return { layoutId: layout.id, hexes, ports };
 }
