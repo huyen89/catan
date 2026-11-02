@@ -157,6 +157,59 @@ describe('voice:join', () => {
   });
 });
 
+describe('voice:join mute state and cap', () => {
+  const prevMax = process.env.VOICE_MAX_PEERS;
+  afterEach(() => {
+    if (prevMax === undefined) delete process.env.VOICE_MAX_PEERS;
+    else process.env.VOICE_MAX_PEERS = prevMax;
+  });
+
+  it("reports each peer's current mic state in the ack", async () => {
+    const a = await client('alice', 'r1');
+    const b = await client('bob', 'r1');
+    await join(a);
+    await join(b);
+    await a.timeout(2000).emitWithAck('voice:state', { muted: false });
+    const c = await client('carol', 'r1');
+    const ack = await join(c);
+    expect(ack.ok && [...ack.data.peers].sort((x, y) => x.userId.localeCompare(y.userId))).toEqual([
+      { userId: 'alice', muted: false },
+      { userId: 'bob', muted: true },
+    ]);
+  });
+
+  it('refuses joins beyond VOICE_MAX_PEERS without disturbing the channel', async () => {
+    process.env.VOICE_MAX_PEERS = '2';
+    const a = await client('alice', 'r1');
+    const b1 = await client('bob', 'r1', 'bob-1');
+    const c = await client('carol', 'r1');
+    await join(a);
+    await join(b1);
+    await settle();
+    const aEvents = record(a, 'voice:peerJoined');
+    hookCalls = [];
+    expect(errCode(await join(c))).toBe('voice_full');
+    expect(isInVoice(serverSockets.get('carol')!)).toBe(false);
+
+    // Members (and a member's new tab taking over) are not counted against the cap.
+    expect((await join(b1)).ok).toBe(true);
+    const b2 = await client('bob', 'r1', 'bob-2');
+    expect((await join(b2)).ok).toBe(true);
+    expect(isInVoice(serverSockets.get('bob-2')!)).toBe(true);
+
+    // Other rooms have their own channel.
+    const d = await client('dave', 'r2');
+    expect((await join(d)).ok).toBe(true);
+
+    // A slot frees up when someone leaves.
+    await a.timeout(2000).emitWithAck('voice:leave', {});
+    expect((await join(c)).ok).toBe(true);
+    await settle();
+    expect(aEvents.map((e) => e.userId)).toEqual(['bob', 'bob']);
+    expect(hookCalls.some((h) => h.userId === 'carol' && h.inVoice)).toBe(true);
+  });
+});
+
 describe('voice:signal', () => {
   it('relays between members of the same voice channel with the sender id', async () => {
     const a = await client('alice', 'r1');

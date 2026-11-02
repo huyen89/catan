@@ -1,6 +1,7 @@
 import { C2S, type Ack, type AckError, type VoicePeer } from '@hexhaven/shared';
 import { ioRooms, type HexServer, type HexSocket } from '../types';
 import { TokenBucket } from '../../voice/rateLimit';
+import { voiceMaxPeersFromEnv } from '../../voice/limits';
 
 /** Callbacks into the room manager so seat badges (inVoice/muted) stay in sync. */
 export interface VoiceHooks {
@@ -29,6 +30,7 @@ const ERR = {
   notInVoice: { code: 'not_in_voice', message: 'Not in the voice channel' },
   peerNotInVoice: { code: 'peer_not_in_voice', message: 'That player is not in voice' },
   rateLimited: { code: 'rate_limited', message: 'Too many voice messages' },
+  full: { code: 'voice_full', message: 'The voice channel is full' },
 } satisfies Record<string, AckError>;
 
 type Reply<T> = (res: Ack<T>) => void;
@@ -109,6 +111,7 @@ function removeFromVoice(
 export function registerVoiceHandlers(io: HexServer, socket: HexSocket, hooks: VoiceHooks): void {
   const signalBucket = new TokenBucket(SIGNAL_BURST, SIGNAL_PER_SEC);
   const controlBucket = new TokenBucket(CONTROL_BURST, CONTROL_PER_SEC);
+  const maxPeers = voiceMaxPeersFromEnv();
 
   socket.on('voice:join', (rawPayload, rawAck) => {
     const { payload, reply } = normalizeArgs<{ peers: VoicePeer[] }>(rawPayload, rawAck);
@@ -117,6 +120,17 @@ export function registerVoiceHandlers(io: HexServer, socket: HexSocket, hooks: V
     const roomId = socket.data.roomId;
     if (!roomId) return fail(reply, ERR.notInRoom);
     const { userId } = socket.data;
+
+    // Other users already in the channel (this user's own tabs are replaced, so not counted).
+    const peers = new Map<string, VoicePeer>();
+    for (const id of voiceSocketIds(socket, roomId)) {
+      const peerSocket = socket.nsp.sockets.get(id);
+      const peerId = peerSocket?.data.userId;
+      if (!peerSocket || !peerId || peerId === userId) continue;
+      peers.set(peerId, { userId: peerId, muted: membership.get(peerSocket)?.muted ?? true });
+    }
+    // Checked before touching any existing session, so a refused join changes nothing.
+    if (peers.size >= maxPeers) return fail(reply, ERR.full);
 
     // Re-joining from the same socket restarts the session cleanly for everyone.
     removeFromVoice(io, socket, hooks, false);
@@ -127,13 +141,6 @@ export function registerVoiceHandlers(io: HexServer, socket: HexSocket, hooks: V
       }
     }
 
-    const peers = new Map<string, VoicePeer>();
-    for (const id of voiceSocketIds(socket, roomId)) {
-      const peerSocket = socket.nsp.sockets.get(id);
-      const peerId = peerSocket?.data.userId;
-      if (!peerSocket || !peerId || peerId === userId) continue;
-      peers.set(peerId, { userId: peerId, muted: membership.get(peerSocket)?.muted ?? true });
-    }
     void socket.join(ioRooms.voice(roomId));
     membership.set(socket, { roomId, muted: true });
 

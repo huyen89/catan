@@ -130,6 +130,7 @@ describe('error messages', () => {
   it('explains join failures', () => {
     expect(joinErrorMessage('not_in_room')).toMatch(/room/);
     expect(joinErrorMessage('timeout')).toMatch(/did not answer/);
+    expect(joinErrorMessage('voice_full')).toMatch(/full/);
     expect(joinErrorMessage(undefined)).toBe('Could not join voice.');
   });
 });

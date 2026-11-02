@@ -123,6 +123,8 @@ export function joinErrorMessage(code: string | undefined): string {
   switch (code) {
     case 'not_in_room':
       return 'Join a room before joining voice.';
+    case 'voice_full':
+      return 'Voice chat is full right now. You can still play and use the chat.';
     case 'rate_limited':
       return 'Too many attempts — wait a moment and try again.';
     case 'timeout':
