@@ -1,4 +1,4 @@
-import { expect, type Browser, type Page } from '@playwright/test';
+import { expect, type Browser, type Locator, type Page } from '@playwright/test';
 
 export const RESOURCES = ['brick', 'lumber', 'wool', 'grain', 'ore'] as const;
 
@@ -21,45 +21,39 @@ export async function createRoom(page: Page): Promise<string> {
   return code;
 }
 
+/** The game moves on without us (bots, timers), so a target can vanish between check and click. */
+async function tryClick(target: Locator): Promise<'acted'> {
+  await target.click({ timeout: 3000 }).catch(() => undefined);
+  return 'acted';
+}
+
 /** Click something on the board or in a dialog if the game is waiting for us. Returns false if idle. */
 export async function step(page: Page): Promise<'over' | 'acted' | 'idle'> {
   if (await page.getByTestId('game-over').isVisible()) return 'over';
 
-  if (await page.getByTestId('discard-dialog').isVisible()) {
-    for (let i = 0; i < 40; i++) {
-      if (await page.getByTestId('discard-confirm').isEnabled()) break;
-      for (const r of RESOURCES) {
-        const plus = page.getByTestId(`discard-${r}-plus`);
-        if (await plus.isEnabled()) {
-          await plus.click();
-          break;
-        }
-      }
+  const discard = page.getByTestId('discard-dialog');
+  if (await discard.isVisible()) {
+    const confirm = page.getByTestId('discard-confirm');
+    for (let i = 0; i < 40 && (await discard.isVisible()); i++) {
+      if (await confirm.isEnabled({ timeout: 1000 }).catch(() => false)) break;
+      const plus = discard.locator('[data-testid$="-plus"]:enabled').first();
+      if (await plus.isVisible()) await plus.click({ timeout: 2000 }).catch(() => undefined);
     }
-    await page.getByTestId('discard-confirm').click();
+    if (await discard.isVisible()) await confirm.click({ timeout: 2000 }).catch(() => undefined);
     return 'acted';
   }
 
   const victim = page.locator('[data-testid^="steal-victim-"]').first();
-  if (await victim.isVisible()) {
-    await victim.click();
-    return 'acted';
-  }
+  if (await victim.isVisible()) return tryClick(victim);
 
   for (const prefix of ['vertex-', 'edge-', 'hex-']) {
     const target = page.locator(`[data-testid^="${prefix}"]`).first();
-    if (await target.isVisible()) {
-      await target.click();
-      return 'acted';
-    }
+    if (await target.isVisible()) return tryClick(target);
   }
 
   for (const id of ['roll-dice', 'pass-special-build', 'end-turn']) {
     const btn = page.getByTestId(id);
-    if ((await btn.isVisible()) && (await btn.isEnabled())) {
-      await btn.click();
-      return 'acted';
-    }
+    if ((await btn.isVisible()) && (await btn.isEnabled())) return tryClick(btn);
   }
   return 'idle';
 }
