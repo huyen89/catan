@@ -1,5 +1,5 @@
 import { err, type Handler, type HandlerMap } from '../context';
-import { updateLongestRoad } from './awards';
+import { seatsCutAt, updateLongestRoad } from './awards';
 import { builderSeat, expectSeat, pay, withVictoryCheck } from './flow';
 import { buildableRoadEdges, canBuildRoadAt, canBuildSettlementAt } from './placement';
 
@@ -26,7 +26,7 @@ const buildRoad: Handler<'BUILD_ROAD'> = (ctx, a) => {
   s.roads[a.edge] = ctx.seat;
   p.roadsLeft--;
   ctx.events.push({ type: 'built', seat: ctx.seat, kind: 'road', at: a.edge });
-  updateLongestRoad(ctx);
+  updateLongestRoad(ctx, [ctx.seat]);
 
   if (ph.kind === 'roadBuilding') {
     const remaining = ph.remaining - 1;
@@ -53,7 +53,7 @@ const buildSettlement: Handler<'BUILD_SETTLEMENT'> = (ctx, a) => {
   p.settlementsLeft--;
   ctx.events.push({ type: 'built', seat: ctx.seat, kind: 'settlement', at: a.vertex });
   // A new settlement can cut an opponent's road.
-  updateLongestRoad(ctx);
+  updateLongestRoad(ctx, seatsCutAt(ctx, a.vertex, ctx.seat));
 };
 
 const buildCity: Handler<'BUILD_CITY'> = (ctx, a) => {
