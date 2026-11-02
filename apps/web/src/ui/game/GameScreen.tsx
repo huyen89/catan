@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { computeHighlights } from '../../game/highlights';
 import { phasePrompt } from '../../game/prompt';
+import { offersAwaitingMe } from '../../game/trade';
 import { remainingMs } from '../../store/gameMerge';
 import { useGameStore } from '../../store/game';
 import { useRoomStore } from '../../store/room';
@@ -12,7 +13,9 @@ import { DevPickerDialog, DiscardDialog, GameOverOverlay, StealDialog } from './
 import { GameLog } from './GameLog';
 import { PlayersPanel } from './PlayersPanel';
 import { useSeatMeta } from './seats';
+import { SideTabs, type SideTab } from './SideTabs';
 import { TradePanel } from './TradePanel';
+import { COMPACT_QUERY, useMediaQuery } from '../useMediaQuery';
 
 function Timer() {
   const deadline = useGameStore((s) => s.payload?.deadline ?? null);
@@ -54,6 +57,8 @@ export function GameScreen({ header, onLeave, chatDisabled }: GameScreenProps) {
   const paused = useRoomStore((s) => s.room?.paused ?? false);
   const { nameOf, colorOf } = useSeatMeta();
   const [picker, setPicker] = useState<DevPicker>(null);
+  const compact = useMediaQuery(COMPACT_QUERY);
+  const [sideTab, setSideTab] = useState<SideTab | null>('players');
   const view = payload?.view ?? null;
   const hl = useMemo(() => computeHighlights(view, mode), [view, mode]);
 
@@ -125,13 +130,32 @@ export function GameScreen({ header, onLeave, chatDisabled }: GameScreenProps) {
         />
       </main>
 
-      <aside className="game-side">
-        <VoiceBar />
-        <PlayersPanel view={view} />
-        {me !== null && <TradePanel view={view} busy={busy} />}
-        <GameLog board={view.board} />
-        <ChatPanel disabled={chatDisabled} />
-      </aside>
+      {compact ? (
+        <SideTabs
+          tab={sideTab}
+          onTab={setSideTab}
+          tradeBadge={offersAwaitingMe(view.trades, me)}
+          panes={{
+            players: (
+              <>
+                <VoiceBar />
+                <PlayersPanel view={view} />
+              </>
+            ),
+            trade: me !== null ? <TradePanel view={view} busy={busy} /> : null,
+            log: <GameLog board={view.board} />,
+            chat: <ChatPanel disabled={chatDisabled} />,
+          }}
+        />
+      ) : (
+        <aside className="game-side">
+          <VoiceBar />
+          <PlayersPanel view={view} />
+          {me !== null && <TradePanel view={view} busy={busy} />}
+          <GameLog board={view.board} />
+          <ChatPanel disabled={chatDisabled} />
+        </aside>
+      )}
 
       <footer className="game-bottom">
         {me !== null ? (

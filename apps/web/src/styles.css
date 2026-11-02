@@ -121,15 +121,34 @@ button {
 button:hover:not(:disabled) {
   border-color: var(--muted);
 }
-button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-ink);
   font-weight: 600;
+}
+/*
+ * Disabled controls never look highlighted: primary / toggled-on / selected variants fall back to
+ * the neutral surface (a faded accent still reads as "press me"). Declared after the variants and
+ * with matching specificity so it always wins.
+ */
+button:disabled,
+button.primary:disabled,
+button.on:disabled,
+button.selected:disabled,
+.phase-banner.act button:disabled {
+  background: var(--panel-2);
+  border-color: var(--line);
+  border-style: dashed;
+  color: var(--muted);
+  box-shadow: none;
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+button.ghost:disabled,
+button.link:disabled {
+  background: transparent;
+  border-color: transparent;
 }
 button.ghost {
   background: transparent;
@@ -968,7 +987,7 @@ label {
   display: flex;
   gap: 6px;
   align-items: center;
-  flex: 0 1 auto;
+  flex: 1 1 0;
   min-width: 90px;
   overflow-x: auto;
 }
@@ -1162,50 +1181,184 @@ label {
 
 /* ------------------------------------------------------------ small screens */
 
+/* Side column as a tab rail + one panel (rendered by SideTabs on short viewports). */
+.game-side.compact {
+  flex-direction: row-reverse;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+.side-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  flex: none;
+  background: var(--panel);
+}
+.side-tab {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+.side-tab.on {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: #3b3420;
+}
+.tab-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 18px;
+}
+.side-pane {
+  width: 272px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-right: 1px solid var(--line);
+}
+.side-pane .chat ol,
+.side-pane .log ol {
+  max-height: none;
+}
+
 /* Phone in landscape: short viewport. Compact everything, keep the board as big as possible. */
 @media (max-height: 560px) {
   :root {
     font-size: 13px;
   }
+  /* Header and footer span the full width; only the board shares its row with the side tabs. */
   .game {
-    grid-template-columns: minmax(0, 1fr) 270px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'top top'
+      'pause pause'
+      'board side'
+      'bottom bottom';
+  }
+  .game-side.compact {
+    border-left: 1px solid var(--line);
   }
   .game-top {
-    padding: 4px 8px;
+    padding: 3px 6px;
+    gap: 6px;
+  }
+  /* The build buttons must stay on screen: the dev-card strip takes what is left and scrolls. */
+  .devcards {
+    flex: 1 1 0;
+    min-width: 0;
   }
   .phase-banner {
-    padding: 3px 8px;
+    padding: 3px 10px;
+    min-height: 40px;
+    justify-content: flex-start;
+    text-align: left;
+    line-height: 1.15;
+    font-size: 0.92rem;
   }
   .game-bottom {
-    padding: 4px 8px;
-    gap: 8px;
+    padding: 3px 6px;
+    gap: 6px;
+  }
+  .hand {
+    gap: 3px;
   }
   .hand .card {
-    width: 46px;
+    width: 38px;
     padding: 2px;
+    gap: 0;
   }
-  .card-label {
+  .card-label,
+  .cost,
+  .turn-controls .dice,
+  .dev-tools label,
+  .room-chip > .muted {
     display: none;
+  }
+  .card-count {
+    font-size: 1rem;
   }
   .build {
-    padding: 3px 6px;
+    padding: 2px 8px;
+    min-width: 44px;
   }
-  .cost {
-    display: none;
+  .dev {
+    flex-direction: row;
+    gap: 6px;
+    padding: 2px 4px 2px 8px;
   }
-  .turn-controls .dice {
-    display: none;
+  .dev-count {
+    font-size: 0.75rem;
   }
-  .dev-tools label {
-    display: none;
+  .devcards {
+    min-width: 0;
   }
-  .chat ol,
-  .log ol {
-    max-height: 120px;
+  .timer {
+    font-size: 0.95rem;
+    padding: 2px 6px;
+  }
+  .modal {
+    padding: 12px;
   }
   .show-results {
-    right: 290px;
-    bottom: 70px;
+    right: auto;
+    left: 12px;
+    bottom: 64px;
+  }
+}
+
+/* Touch screens (and every short viewport): fingers need >= 40px targets. */
+@media (max-height: 560px), (pointer: coarse) {
+  button,
+  select,
+  input:not([type='checkbox']):not([type='range']) {
+    min-height: 40px;
+  }
+  button.small {
+    min-width: 40px;
+  }
+  .chip {
+    min-width: 40px;
+    justify-content: center;
+  }
+  .res-counter {
+    gap: 3px;
+  }
+  .res-step {
+    grid-template-rows: auto 40px auto 40px;
+    padding: 3px 0;
+  }
+  .res-step .step {
+    width: 100%;
+    min-width: 0;
+    padding: 0;
+  }
+  .resp button {
+    padding: 2px 10px;
+  }
+  .game-side .vb-btn {
+    min-height: 40px;
+  }
+  .dev-tools input[type='checkbox'] {
+    width: 22px;
+    height: 22px;
   }
 }
 
