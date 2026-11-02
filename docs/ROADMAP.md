@@ -34,7 +34,15 @@ Critical path: M0 → ENG → BOT → INT → M3.
 
 ## Status
 
-- [x] M0 bootstrap
-- [ ] M1 ENG · GEN · SRV · WEB · VOX
-- [ ] M2 BOT · INT
-- [ ] M3 hardening
+- [x] M0 bootstrap (#1)
+- [x] M1 GEN (#2) · WEB (#3) · ENG (#4) · SRV (#5) · VOX (#6)
+- [x] M2 BOT (#7) · INT (lobby → full game, trade, reconnect, voice e2e)
+- [ ] M3 hardening. Known follow-ups:
+  - require `PUBLIC_ORIGIN` in production
+  - persist the room kick list
+  - cap voice mesh size, include peer mute state in the `voice:join` ack
+  - trim the web bundle (`@hexhaven/shared` pulls in zod)
+  - cache views and graphs on the broadcast path
+  - bots that open their own trade offers
+  - verify Cloudflare TURN relay on a real network
+- [ ] M4–M6 as above

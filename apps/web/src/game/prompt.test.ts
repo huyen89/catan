@@ -171,9 +171,15 @@ describe('lobby rules', () => {
 
   it('can start only with every seat filled and every human ready', () => {
     expect(canStart(room([seat(0, 'human', true), seat(1, 'bot'), seat(2, 'bot')]))).toBe(true);
-    expect(canStart(room([seat(0, 'human', false), seat(1, 'bot'), seat(2, 'bot')]))).toBe(false);
+    expect(canStart(room([seat(0, 'human', true), seat(1, 'human', false), seat(2, 'bot')]))).toBe(
+      false,
+    );
     expect(canStart(room([seat(0, 'human', true), seat(1, 'open'), seat(2, 'bot')]))).toBe(false);
     expect(canStart(room([seat(0, 'human', true), seat(1, 'bot')]))).toBe(false);
+    // The host's own ready flag is not required (pressing Start counts as ready).
+    expect(canStart(room([seat(0, 'human', false), seat(1, 'bot'), seat(2, 'bot')]))).toBe(true);
+    // Bots alone cannot start a game.
+    expect(canStart(room([seat(0, 'bot'), seat(1, 'bot'), seat(2, 'bot')]))).toBe(false);
   });
 
   it('parses bounded whole numbers typed into settings', () => {
