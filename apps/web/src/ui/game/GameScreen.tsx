@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { computeHighlights } from '../../game/highlights';
-import { phasePrompt } from '../../game/prompt';
+import { computeHighlights, type HexAction } from '../../game/highlights';
+import { modeHint, phasePrompt } from '../../game/prompt';
 import { offersAwaitingMe } from '../../game/trade';
 import { SoundToggle } from '../../sound/SoundToggle';
 import { remainingMs } from '../../store/gameMerge';
@@ -10,7 +10,13 @@ import { VoiceBar } from '../../voice/VoiceBar';
 import { ChatPanel } from '../ChatPanel';
 import { Board } from './Board';
 import { BuildBar, DevCards, Hand, TurnControls, type DevPicker } from './BottomBar';
-import { DevPickerDialog, DiscardDialog, GameOverOverlay, StealDialog } from './Dialogs';
+import {
+  DevPickerDialog,
+  DiscardDialog,
+  GameOverOverlay,
+  GoldDialog,
+  StealDialog,
+} from './Dialogs';
 import { GameLog } from './GameLog';
 import { PlayersPanel } from './PlayersPanel';
 import { useSeatMeta } from './seats';
@@ -55,13 +61,20 @@ export function GameScreen({ header, onLeave, chatDisabled }: GameScreenProps) {
   const mode = useGameStore((s) => s.mode);
   const send = useGameStore((s) => s.send);
   const setMode = useGameStore((s) => s.setMode);
+  const piece = useGameStore((s) => s.piece);
+  const setPiece = useGameStore((s) => s.setPiece);
+  const shipFrom = useGameStore((s) => s.shipFrom);
+  const setShipFrom = useGameStore((s) => s.setShipFrom);
   const paused = useRoomStore((s) => s.room?.paused ?? false);
   const { nameOf, colorOf } = useSeatMeta();
   const [picker, setPicker] = useState<DevPicker>(null);
   const compact = useMediaQuery(COMPACT_QUERY);
   const [sideTab, setSideTab] = useState<SideTab | null>('players');
   const view = payload?.view ?? null;
-  const hl = useMemo(() => computeHighlights(view, mode), [view, mode]);
+  const hl = useMemo(
+    () => computeHighlights(view, mode, { piece, shipFrom }),
+    [view, mode, piece, shipFrom],
+  );
 
   const onVertex = useCallback(
     async (id: string) => {
@@ -73,22 +86,37 @@ export function GameScreen({ header, onLeave, chatDisabled }: GameScreenProps) {
   );
   const onEdge = useCallback(
     async (id: string) => {
-      if (!hl.edgeAction || busy) return;
-      const ok = await send({ type: hl.edgeAction, edge: id });
-      if (ok && hl.edgeAction === 'BUILD_ROAD' && view?.phase.kind !== 'roadBuilding')
+      const action = hl.edgeAction;
+      if (!action || busy) return;
+      if (action === 'MOVE_SHIP') {
+        if (hl.shipFrom && (await send({ type: 'MOVE_SHIP', from: hl.shipFrom, to: id })))
+          setMode(null);
+        return;
+      }
+      const ok = await send({ type: action, edge: id });
+      if (
+        ok &&
+        (action === 'BUILD_ROAD' || action === 'BUILD_SHIP') &&
+        view?.phase.kind !== 'roadBuilding'
+      )
         setMode(null);
     },
-    [hl.edgeAction, busy, send, setMode, view],
+    [hl.edgeAction, hl.shipFrom, busy, send, setMode, view],
   );
   const onHex = useCallback(
-    (id: string) => {
-      if (!busy) void send({ type: 'MOVE_ROBBER', hex: id });
+    (id: string, action: HexAction) => {
+      if (!busy) void send({ type: action, hex: id });
     },
     [busy, send],
+  );
+  const onShip = useCallback(
+    (id: string) => setShipFrom(shipFrom === id ? null : id),
+    [shipFrom, setShipFrom],
   );
 
   if (!view) return <div className="center-screen">Loading game…</div>;
   const prompt = phasePrompt(view, nameOf);
+  const hint = modeHint(mode, hl);
   const me = view.viewer;
 
   return (
@@ -101,10 +129,29 @@ export function GameScreen({ header, onLeave, chatDisabled }: GameScreenProps) {
           role="status"
           aria-live="polite"
         >
-          {prompt.text}
+          <span>
+            {prompt.text}
+            {hint && <span className="mode-hint"> · {hint}</span>}
+          </span>
+          {hl.pieces.length > 1 && (
+            <span className="piece-toggle" role="group" aria-label="Piece to place">
+              {hl.pieces.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  className={piece === p ? 'small on' : 'small'}
+                  data-testid={`piece-${p}`}
+                  aria-pressed={piece === p}
+                  onClick={() => setPiece(p)}
+                >
+                  {p === 'road' ? 'Road' : 'Ship'}
+                </button>
+              ))}
+            </span>
+          )}
           {mode && (
             <button type="button" className="ghost small" onClick={() => setMode(null)}>
-              Cancel build
+              {mode === 'moveShip' ? 'Cancel move' : 'Cancel build'}
             </button>
           )}
         </div>
@@ -129,6 +176,7 @@ export function GameScreen({ header, onLeave, chatDisabled }: GameScreenProps) {
           onVertex={onVertex}
           onEdge={onEdge}
           onHex={onHex}
+          onShip={onShip}
         />
       </main>
 
@@ -145,7 +193,7 @@ export function GameScreen({ header, onLeave, chatDisabled }: GameScreenProps) {
             </>
           ),
           trade: me !== null ? <TradePanel view={view} busy={busy} /> : null,
-          log: <GameLog board={view.board} />,
+          log: <GameLog board={view.board} variant={view.config.variant} />,
           chat: <ChatPanel disabled={chatDisabled} />,
         }}
       />
@@ -163,6 +211,7 @@ export function GameScreen({ header, onLeave, chatDisabled }: GameScreenProps) {
       </footer>
 
       <DiscardDialog view={view} busy={busy} />
+      <GoldDialog view={view} busy={busy} />
       <StealDialog view={view} busy={busy} />
       <DevPickerDialog picker={picker} busy={busy} onClose={() => setPicker(null)} />
       <GameOverOverlay view={view} onLeave={onLeave} />

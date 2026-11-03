@@ -95,6 +95,13 @@ ol {
 .error {
   color: var(--danger);
 }
+.notice {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: rgb(240 180 41 / 0.12);
+}
 .hint {
   color: var(--muted);
   font-size: 0.82rem;
@@ -622,11 +629,52 @@ label {
 .hex-desert {
   fill: var(--terrain-desert);
 }
+/* Open Seas: water tiles blend into the board background; only a faint grid and waves show. */
 .hex-sea {
   fill: var(--sea);
+  stroke: rgb(255 255 255 / 0.07);
+  stroke-width: 1;
+}
+.sea-glyph {
+  color: rgb(255 255 255 / 0.16);
 }
 .hex-gold {
-  fill: #d4af37;
+  fill: url(#hex-gold-fill);
+}
+.hex-gold + .hex-glyph {
+  color: rgb(110 70 0 / 0.55);
+}
+.shore-line {
+  stroke: var(--sand);
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+.ship-wake {
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 2 5;
+  opacity: 0.9;
+}
+.ship-hull,
+.ship-sail {
+  stroke: #111;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+}
+.ship-sail {
+  fill-opacity: 0.85;
+}
+.pirate-hull,
+.pirate-sail {
+  fill: #1b1d22;
+  stroke: #e9e2cc;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+.pirate-flag {
+  fill: #c1121f;
+  stroke: #e9e2cc;
+  stroke-width: 1;
 }
 .hex-glyph {
   color: rgb(0 0 0 / 0.28);
@@ -720,6 +768,29 @@ label {
   stroke: #23262b;
   stroke-width: 2;
 }
+.hl-pirate polygon {
+  fill: rgb(10 20 40 / 0.25);
+  stroke: #9fe3ff;
+}
+.hl-pirate circle {
+  fill: rgb(20 24 30 / 0.75);
+  stroke: #9fe3ff;
+}
+.hl-edges.sea .hl-mark {
+  stroke: #9fe3ff;
+}
+.hl-ship .hl-mark {
+  fill: rgb(255 255 255 / 0.18);
+  stroke: #fff;
+  stroke-width: 3;
+  stroke-dasharray: 5 4;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.hl-ship.picked .hl-mark {
+  stroke: var(--accent);
+  stroke-dasharray: none;
+  animation: none;
+}
 .hl:hover .hl-mark,
 .hl:focus-visible .hl-mark,
 .hl-hex:hover polygon,
@@ -801,6 +872,21 @@ label {
   border-radius: 4px;
   padding: 0 5px;
   font-weight: 600;
+}
+.award.island {
+  background: #9fe3ff;
+}
+.mode-hint {
+  font-weight: 500;
+}
+.piece-toggle {
+  display: inline-flex;
+  gap: 2px;
+  flex: none;
+}
+.piece-toggle button.on {
+  background: var(--accent-ink);
+  color: var(--accent);
 }
 .voice {
   margin-left: 6px;

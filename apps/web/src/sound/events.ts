@@ -1,12 +1,13 @@
 import type { GameEvent, PlayerView } from '@hexhaven/engine';
 
-export type SoundId = 'dice' | 'yourTurn' | 'build' | 'trade' | 'robber' | 'gameOver';
+export type SoundId = 'dice' | 'yourTurn' | 'build' | 'gold' | 'trade' | 'robber' | 'gameOver';
 
 /** Play order when one update carries several cues (each cue plays at most once). */
 export const SOUND_ORDER: readonly SoundId[] = [
   'dice',
   'robber',
   'build',
+  'gold',
   'trade',
   'yourTurn',
   'gameOver',
@@ -23,11 +24,20 @@ function cueFor(e: GameEvent, me: number | null): SoundId | null {
     case 'rolled':
       return 'dice';
     case 'robberMoved':
+    case 'pirateMoved':
     case 'stole':
       return 'robber';
     case 'built':
     case 'setupPlaced':
+    case 'shipMoved':
       return 'build';
+    // Gold to choose and new-island bonuses only chime for the player they are for.
+    case 'produced':
+      return me !== null && (e.gold?.[String(me)] ?? 0) > 0 ? 'gold' : null;
+    case 'setupResources':
+      return me !== null && e.seat === me && (e.gold ?? 0) > 0 ? 'gold' : null;
+    case 'islandBonus':
+      return e.seat === me ? 'gold' : null;
     case 'tradeOffered':
       return me !== null && e.offer.from !== me && String(me) in e.offer.responses ? 'trade' : null;
     case 'gameOver':
@@ -48,6 +58,7 @@ export function mustAct(view: Snapshot['view'], me: number | null): boolean {
       return false;
     case 'setup':
     case 'discard':
+    case 'goldChoice':
       return view.pendingActors.includes(me);
     case 'specialBuild':
       return view.phase.seat === me;
@@ -84,6 +95,11 @@ export function soundsFor(
     const c = cueFor(e, me);
     if (c) cues.add(c);
   }
-  if (becameMyMove(prev.view, next.view)) cues.add('yourTurn');
+  // The gold chime already says "your pick" when the gold choice is what made it our move.
+  if (
+    becameMyMove(prev.view, next.view) &&
+    !(cues.has('gold') && next.view.phase.kind === 'goldChoice')
+  )
+    cues.add('yourTurn');
   return SOUND_ORDER.filter((s) => cues.has(s));
 }

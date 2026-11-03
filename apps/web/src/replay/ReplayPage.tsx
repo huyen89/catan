@@ -5,7 +5,7 @@ import { seatColor } from '../game/colors';
 import type { EventTextContext } from '../game/eventText';
 import { computeHighlights } from '../game/highlights';
 import { formatDateTime, variantLabel } from '../game/history';
-import { DEV_LABEL, RESOURCE_LABEL, hexLabel } from '../game/labels';
+import { DEV_LABEL, RESOURCE_LABEL, awardBadge, hexLabel } from '../game/labels';
 import { api } from '../net/api';
 import { errorMessage } from '../net/emit';
 import { Link } from '../ui/common';
@@ -103,8 +103,12 @@ function ReplayViewer({ replay, timeline }: { replay: ReplayResponse; timeline: 
   );
   const meta = timeline.frames[frame]!;
   const ctx: EventTextContext = useMemo(
-    () => ({ name: nameOf, hexLabel: (id) => hexLabel(view.board, id) }),
-    [nameOf, view.board],
+    () => ({
+      name: nameOf,
+      hexLabel: (id) => hexLabel(view.board, id),
+      variant: replay.config.variant,
+    }),
+    [nameOf, view.board, replay.config.variant],
   );
   const caption = frameCaption(meta, ctx);
 
@@ -168,7 +172,7 @@ function ReplayViewer({ replay, timeline }: { replay: ReplayResponse; timeline: 
           ← History
         </Link>
         <h1>
-          Replay · {variantLabel(summary.variant)}
+          Replay · {variantLabel(summary.variant, replay.config.scenario)}
           <span className="muted small">
             {' '}
             {formatDateTime(summary.finishedAt ?? summary.createdAt)} · room {summary.roomCode}
@@ -356,7 +360,10 @@ function ReplayPlayers(props: {
                   <span aria-label={`${p.playedKnights} knights played`}>
                     <KnightIcon /> {p.playedKnights}
                   </span>
-                  {view.longestRoad === p.seat && <span className="award">Road</span>}
+                  {p.bonusVP > 0 && <span className="award island">+{p.bonusVP} isle</span>}
+                  {view.longestRoad === p.seat && (
+                    <span className="award">{awardBadge('longestRoad', view.config.variant)}</span>
+                  )}
                   {view.largestArmy === p.seat && <span className="award">Army</span>}
                 </div>
                 {p.resources && (

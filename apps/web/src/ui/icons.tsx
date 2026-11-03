@@ -1,7 +1,7 @@
 import type { Resource, Terrain } from '@hexhaven/engine';
 
 /** Simple original glyphs, drawn in a 24×24 box centred on (0,0). */
-export type Glyph = Resource | 'desert';
+export type Glyph = Resource | 'desert' | 'gold' | 'sea';
 
 export const TERRAIN_GLYPH: Partial<Record<Terrain, Glyph>> = {
   hills: 'brick',
@@ -10,6 +10,8 @@ export const TERRAIN_GLYPH: Partial<Record<Terrain, Glyph>> = {
   fields: 'grain',
   mountains: 'ore',
   desert: 'desert',
+  gold: 'gold',
+  sea: 'sea',
 };
 
 export function GlyphShape({ glyph, color = 'currentColor' }: { glyph: Glyph; color?: string }) {
@@ -68,6 +70,23 @@ export function GlyphShape({ glyph, color = 'currentColor' }: { glyph: Glyph; co
         <g fill={color}>
           <circle cx={3} cy={-4} r={5} />
           <path d="M-12,9 Q-6,2 0,7 Q6,11 12,5 L12,10 L-12,10 Z" />
+        </g>
+      );
+    case 'gold':
+      // A heap of nuggets with a glint.
+      return (
+        <g fill={color}>
+          <path d="M-12,10 L-9,3 L-3,1 L0,6 L-2,10 Z" />
+          <path d="M-1,10 L1,4 L6,2 L10,5 L12,10 Z" />
+          <path d="M-6,2 L-4,-4 L2,-6 L5,-1 L3,3 L-2,2 Z" />
+          <path d="M7,-12 L8.2,-8.2 L12,-7 L8.2,-5.8 L7,-2 L5.8,-5.8 L2,-7 L5.8,-8.2 Z" />
+        </g>
+      );
+    case 'sea':
+      return (
+        <g fill="none" stroke={color} strokeWidth={1.6} strokeLinecap="round">
+          <path d="M-12,-3 q3,-3 6,0 t6,0 t6,0 t6,0" />
+          <path d="M-9,4 q3,-3 6,0 t6,0 t6,0" />
         </g>
       );
   }
@@ -205,6 +224,17 @@ export function KnightIcon() {
     <svg {...small}>
       <path
         d="M8,1.5 L14,3.5 V8 C14,11.5 11,13.8 8,14.8 C5,13.8 2,11.5 2,8 V3.5 Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+export function ShipIcon() {
+  return (
+    <svg {...small}>
+      <path
+        d="M7.5,1.5 V9 H2 Z M9,3 V9 H13.5 Z M1,10.5 H15 L12.5,14.5 H3.5 Z"
         fill="currentColor"
       />
     </svg>

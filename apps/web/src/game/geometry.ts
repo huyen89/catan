@@ -1,4 +1,5 @@
 import {
+  hexNeighbors,
   hexToPixel,
   parseHexId,
   vertexToPixel,
@@ -83,13 +84,43 @@ export function portAnchor(g: BoardGraph, edge: EdgeId, size = HEX_SIZE): Point 
   return { x: mid.x + (dx / len) * size * PORT_OFFSET, y: mid.y + (dy / len) * size * PORT_OFFSET };
 }
 
-/** A viewBox containing every hex plus room for port markers around the coast. */
+/** Midpoint of an edge (where ships sit). */
+export function edgeMidpoint(graph: BoardGraph, id: EdgeId, size = HEX_SIZE): Point {
+  const [a, b] = edgePoints(graph, id, size);
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+
+/**
+ * Sea hexes on the outer rim of a sea-framed board (fewer than six neighbours on the board).
+ * They only frame the map, so the viewBox may cut them in half to give the islands more room.
+ */
+export function rimSeaHexes(board: Board): Set<HexId> {
+  const ids = new Set(board.hexes.map((h) => h.id));
+  const rim = new Set<HexId>();
+  for (const h of board.hexes) {
+    if (h.terrain !== 'sea') continue;
+    if (hexNeighbors(h.q, h.r).some((n) => !ids.has(n))) rim.add(h.id);
+  }
+  return rim;
+}
+
+/** How much of the rim stays visible around the inner hexes of a sea-framed board, in radii. */
+export const RIM_MARGIN = 0.9;
+
+/**
+ * A viewBox containing every hex plus room for port markers around the coast. On sea-framed
+ * boards (Open Seas) the outer sea ring is cropped to about half a hex: ports sit on inner
+ * coasts there, and the bigger maps need every pixel on a phone.
+ */
 export function boardViewBox(board: Board, size = HEX_SIZE): ViewBox {
+  const rim = rimSeaHexes(board);
+  const inner = board.hexes.filter((h) => !rim.has(h.id));
+  const cropped = rim.size > 0 && inner.length > 0;
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
-  for (const h of board.hexes) {
+  for (const h of cropped ? inner : board.hexes) {
     for (const p of hexCornerPoints(h.q, h.r, size)) {
       minX = Math.min(minX, p.x);
       minY = Math.min(minY, p.y);
@@ -98,7 +129,7 @@ export function boardViewBox(board: Board, size = HEX_SIZE): ViewBox {
     }
   }
   if (!Number.isFinite(minX)) return { minX: 0, minY: 0, width: size, height: size };
-  const margin = size * (PORT_OFFSET + 0.45);
+  const margin = size * (cropped ? RIM_MARGIN : PORT_OFFSET + 0.45);
   return {
     minX: round(minX - margin),
     minY: round(minY - margin),
