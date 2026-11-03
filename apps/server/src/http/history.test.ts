@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { GameListResponse, ReplayResponse, StatsResponse } from '@hexhaven/shared';
 import { createFakeEngine } from '../testing/fakeEngine';
+import { realEngine } from '../rooms/engineApi';
 import { disconnectAll, next, ok, player, startServer, type TestServer } from '../testing/harness';
 import { computeStats } from './history';
 
@@ -88,6 +89,7 @@ describe('history REST', () => {
       mySeat: 1,
       turns: 3,
       variant: 'base',
+      scenario: null,
     });
     expect(g.finishedAt).toBeGreaterThanOrEqual(g.createdAt);
     expect(g.players).toEqual([
@@ -143,6 +145,18 @@ describe('history REST', () => {
       byVariant: {},
       opponents: [],
     });
+  });
+
+  it('names the Open Seas scenario of a game', async () => {
+    srv = await startServer({}, { engine: realEngine });
+    const host = await player(srv.url, 'Host');
+    await ok(host.socket, 'room:create', {
+      settings: { maxSeats: 3, variant: 'seafarers', scenario: 'archipelago' },
+    });
+    for (const seat of [1, 2]) await ok(host.socket, 'room:addBot', { seat, difficulty: 'easy' });
+    await ok(host.socket, 'room:start', {});
+    const list = (await (await get('/api/games', host.cookie)).json()) as GameListResponse;
+    expect(list.games[0]).toMatchObject({ variant: 'seafarers', scenario: 'archipelago' });
   });
 
   it('caps the list at 50 games, newest first', async () => {

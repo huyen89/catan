@@ -8,7 +8,7 @@ import {
   type ScenarioId,
 } from '../board/layouts';
 import { hexId } from './coords';
-import { buildGraph, graphFor, type BoardGraph } from './topology';
+import { buildGraph, graphFor, type BoardGraph, type GraphHex } from './topology';
 
 describe('topology', () => {
   it('base 19-hex board has 54 vertices, 72 edges, 30 coastal edges', () => {
@@ -173,7 +173,7 @@ describe('topology of sea-framed scenario boards', () => {
 
   it('graphFor remembers the graph per board object and notices replaced hexes', () => {
     const layout = SCENARIOS.newShores;
-    const board = { hexes: hexesOf(layout) };
+    const board: { hexes: GraphHex[] } = { hexes: hexesOf(layout) };
     const g = graphFor(board);
     expect(g).toBe(buildGraph(board.hexes));
     expect(graphFor(board)).toBe(g);

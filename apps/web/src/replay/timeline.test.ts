@@ -15,6 +15,7 @@ function fixture(maxSteps = 400): { replay: ReplayResponse; states: GameState[] 
     gameId: 'g1',
     roomCode: 'ABCDEF',
     variant: 'base',
+    scenario: null,
     status: 'finished',
     winner: final.phase.kind === 'gameOver' ? final.phase.winner : null,
     mySeat: 0,

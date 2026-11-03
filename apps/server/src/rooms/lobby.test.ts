@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { CODE_ALPHABET, randomRoomCode } from './codes';
+import { realEngine } from './engineApi';
 import {
   disconnectAll,
   emit,
@@ -201,8 +202,8 @@ describe('lobby', () => {
     });
   });
 
-  it('Open Seas: scenario VP targets follow the settings; starting waits for the rules', async () => {
-    srv = await startServer();
+  it('Open Seas: scenario VP targets follow the settings and the game starts with them', async () => {
+    srv = await startServer({}, { engine: realEngine });
     const host = await player(srv.url, 'Host');
     const room = await ok(host.socket, 'room:create', {
       settings: { maxSeats: 3, variant: 'seafarers', scenario: 'archipelago' },
@@ -222,10 +223,15 @@ describe('lobby', () => {
     expect((await settle({ variant: 'seafarers' })).vpToWin).toBe(13);
 
     for (const seat of [1, 2]) await ok(host.socket, 'room:addBot', { seat, difficulty: 'easy' });
-    expect(await emit(host.socket, 'room:start', {})).toMatchObject({
-      ok: false,
-      error: { code: 'VARIANT_NOT_READY' },
+    const first = next(host.socket, 'game:state');
+    await ok(host.socket, 'room:start', {});
+    const { view } = await first;
+    expect(view.config).toMatchObject({
+      variant: 'seafarers',
+      scenario: 'archipelago',
+      vpToWin: 13,
     });
+    expect(view.board.hexes.some((h) => h.terrain === 'sea')).toBe(true);
   });
 
   it('passes host to the next human when the host leaves; kicked users cannot rejoin', async () => {

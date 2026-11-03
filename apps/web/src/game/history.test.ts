@@ -15,6 +15,7 @@ const game = (patch: Partial<GameSummary> = {}): GameSummary => ({
   gameId: 'g1',
   roomCode: 'ABCDEF',
   variant: 'base',
+  scenario: null,
   status: 'finished',
   winner: 1,
   mySeat: 0,
