@@ -143,8 +143,9 @@ describe('Open Seas planning', () => {
       pending: { '1': 2, '2': 1 },
       resume: { kind: 'main' },
     });
-    // Seat 1 saves for a city (it holds 2 ore and 1 grain): gold completes it.
+    // Seat 1 saves for a city (it holds 2 ore and 1 grain, no ships left): gold completes it.
     settle(s, 1, homeCoast(s, graphFor(s.board))[0]!);
+    s.players[1]!.shipsLeft = 0;
     setHand(s, 1, { ore: 2, grain: 1 });
     const action = decide(toPlayerView(s, 1), opts);
     expect(action).toEqual({ type: 'CHOOSE_GOLD', resources: resourcesOf({ ore: 1, grain: 1 }) });
@@ -297,11 +298,13 @@ describe('Open Seas planning', () => {
       const g = graphFor(s.board);
       const rich = s.board.hexes.find(
         (h) =>
-          (h.token === 6 || h.token === 8) &&
           h.terrain !== 'gold' &&
-          !s.board.homeIslands.includes(g.islandOf[h.id] ?? -1),
+          g.islandOf[h.id] !== undefined &&
+          !s.board.homeIslands.includes(g.islandOf[h.id]!),
       );
-      if (!rich) throw new Error('no 6/8 hex off the home island');
+      if (!rich) throw new Error('no producing hex off the home island');
+      rich.terrain = 'mountains';
+      rich.token = 8;
       settle(s, 1, g.hexVertices[rich.id]![0]!, 'city');
       setHand(s, 1, { ore: 2 });
       const action = decide(toPlayerView(s, 0), opts);
