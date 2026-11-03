@@ -1,5 +1,10 @@
-import { RESOURCES, type PlayerView, type ResourceCounts, type Seat } from '@hexhaven/engine';
-import { sumCounts } from './eval';
+import {
+  RESOURCES,
+  totalResources,
+  type PlayerView,
+  type ResourceCounts,
+  type Seat,
+} from '@hexhaven/engine';
 
 /**
  * Per-seat memory a long-lived bot keeps across `decide` calls within one turn. `decide` is
@@ -11,11 +16,21 @@ export interface BotMemo {
   turn: string;
   /** `offerKey`s of every offer this bot made during `turn`. */
   offered: string[];
+  /** Seats we already traded with during `turn` (their hands have changed since they answered). */
+  partners: Seat[];
   /** We decided to end the turn and are withdrawing our offers: make no new ones. */
   closing: boolean;
+  /** Easy bots' once-per-turn roll for whether to try a player trade at all. */
+  easyRoll: number | null;
 }
 
-export const newMemo = (): BotMemo => ({ turn: '', offered: [], closing: false });
+export const newMemo = (): BotMemo => ({
+  turn: '',
+  offered: [],
+  partners: [],
+  closing: false,
+  easyRoll: null,
+});
 
 export const turnKey = (view: PlayerView): string => `${view.turn.number}:${view.turn.current}`;
 
@@ -25,9 +40,32 @@ export function syncMemo(memo: BotMemo, view: PlayerView): BotMemo {
   if (memo.turn !== key) {
     memo.turn = key;
     memo.offered = [];
+    memo.partners = [];
     memo.closing = false;
+    memo.easyRoll = null;
   }
   return memo;
+}
+
+/**
+ * True while `seat` has an open offer of its own that someone has not answered yet. The active
+ * bot should not be scheduled then (callers hold it, with a timeout) so responders get a say
+ * before it moves on or ends its turn. Works on a PlayerView or the full GameState.
+ */
+export const awaitingResponses = (view: Pick<PlayerView, 'trades'>, seat: Seat): boolean =>
+  view.trades.some(
+    (t) =>
+      t.from === seat && t.counterTo === null && Object.values(t.responses).includes('pending'),
+  );
+
+/**
+ * Deterministic stand-in for a per-turn random roll when no memo is kept: a hash of the turn
+ * and seat mapped to [0,1).
+ */
+export function turnRoll(view: PlayerView, seat: Seat): number {
+  let h = 2166136261;
+  for (const c of `${view.turn.number}:${seat}`) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+  return (h >>> 0) / 2 ** 32;
 }
 
 const countsKey = (c: ResourceCounts): string => RESOURCES.map((r) => c[r]).join(',');
@@ -35,15 +73,6 @@ const countsKey = (c: ResourceCounts): string => RESOURCES.map((r) => c[r]).join
 /** Identity of a trade for "never re-offer the same thing" checks (recipients ignored). */
 export const offerKey = (give: ResourceCounts, want: ResourceCounts): string =>
   `${countsKey(give)}>${countsKey(want)}`;
-
-export const counts = (part: Partial<ResourceCounts>): ResourceCounts => ({
-  brick: 0,
-  lumber: 0,
-  wool: 0,
-  grain: 0,
-  ore: 0,
-  ...part,
-});
 
 /**
  * Value of a hand toward a build cost: cards the cost still needs are worth a lot, surplus
@@ -74,7 +103,7 @@ export function validTrade(
   give: ResourceCounts,
   want: ResourceCounts,
 ): boolean {
-  if (sumCounts(give) === 0 || sumCounts(want) === 0) return false;
+  if (totalResources(give) === 0 || totalResources(want) === 0) return false;
   return RESOURCES.every((r) => !(give[r] > 0 && want[r] > 0) && hand[r] >= give[r]);
 }
 

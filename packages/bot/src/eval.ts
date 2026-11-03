@@ -2,6 +2,7 @@ import {
   COSTS,
   RESOURCES,
   TERRAIN_RESOURCE,
+  emptyResources,
   graphFor,
   hasResources,
   type BoardGraph,
@@ -66,7 +67,7 @@ export function boardInfo(view: PlayerView): BoardInfo {
 /** Expected production of a vertex per resource (pips), ignoring the robber. */
 export function vertexProduction(view: PlayerView, v: VertexId): ResourceCounts {
   const { graph, hexById } = boardInfo(view);
-  const out: ResourceCounts = { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 };
+  const out = emptyResources();
   for (const h of graph.vertexHexes[v] ?? []) {
     const hex = hexById.get(h);
     const res = hex ? TERRAIN_RESOURCE[hex.terrain] : undefined;
@@ -77,7 +78,7 @@ export function vertexProduction(view: PlayerView, v: VertexId): ResourceCounts 
 
 /** Current production of a seat (pips per resource), counting cities double. */
 export function seatProduction(view: PlayerView, seat: Seat): ResourceCounts {
-  const out: ResourceCounts = { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 };
+  const out = emptyResources();
   for (const [v, b] of Object.entries(view.buildings)) {
     if (b.owner !== seat) continue;
     const p = vertexProduction(view, v);
@@ -132,11 +133,9 @@ export function missing(hand: ResourceCounts, cost: ResourceCounts): ResourceCou
   return out;
 }
 
-export const sumCounts = (c: ResourceCounts): number => RESOURCES.reduce((n, r) => n + c[r], 0);
-
 export function myHand(view: PlayerView): ResourceCounts {
   const me = view.players[view.viewer ?? -1];
-  return me?.resources ? { ...me.resources } : { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 };
+  return me?.resources ? { ...me.resources } : emptyResources();
 }
 
 export function argmax<T>(items: readonly T[], score: (t: T) => number): T | undefined {

@@ -12,7 +12,13 @@ import {
   type ResourceCounts,
   type Seat,
 } from '@hexhaven/engine';
-import { BotPlayer, decide, MAX_BOT_OFFERS_PER_TURN, type BotDifficulty } from './index';
+import {
+  awaitingResponses,
+  BotPlayer,
+  decide,
+  MAX_BOT_OFFERS_PER_TURN,
+  type BotDifficulty,
+} from './index';
 
 const rnd = () => 0.42;
 
@@ -169,20 +175,69 @@ describe('bot player trading', () => {
     expect(decide(view, { difficulty: 'normal', random: rnd }).type).not.toBe('CONFIRM_TRADE');
   });
 
-  it('hard bots never offer to a player close to winning', () => {
+  it('normal and hard bots never offer to a player close to winning', () => {
     const view = toPlayerView(scenario(), 0);
     view.players[2]!.publicVP = view.config.vpToWin - 2;
-    const action = decide(view, { difficulty: 'hard', random: rnd });
-    expect(action).toMatchObject({ type: 'OFFER_TRADE', to: [1, 3] });
+    for (const difficulty of ['normal', 'hard'] as BotDifficulty[]) {
+      const action = decide(view, { difficulty, random: rnd });
+      expect(action).toMatchObject({ type: 'OFFER_TRADE', to: [1, 3] });
+    }
   });
 
-  it('easy bots offer rarely and only 1-for-1', () => {
+  it('reports when its own offer still awaits answers', () => {
+    let s = scenario();
+    expect(awaitingResponses(toPlayerView(s, 0), 0)).toBe(false);
+    s = apply(s, 0, decide(toPlayerView(s, 0), { difficulty: 'normal', random: rnd }));
+    expect(awaitingResponses(toPlayerView(s, 0), 0)).toBe(true);
+    expect(awaitingResponses(s, 1)).toBe(false);
+    s = answerAll(s, 'reject');
+    expect(awaitingResponses(toPlayerView(s, 2), 0)).toBe(false);
+  });
+
+  it('skips a partner it already traded with this turn and prefers ones with cards to spare', () => {
+    // Hard, two grain short: it trades for one grain at a time.
+    const bot = new BotPlayer({ difficulty: 'hard', random: rnd });
+    let s = scenario({ ore: 3, grain: 0, wool: 4 });
+    // Seat 2 holds just the one grain asked for; seats 1 and 3 have more.
+    s.players[2]!.resources = resourcesOf({ grain: 1 });
+    s.players[3]!.resources = resourcesOf({ grain: 3 });
+    s = apply(s, 0, bot.decide(toPlayerView(s, 0)));
+    s = answerAll(s, 'accept');
+    const view = toPlayerView(s, 0);
+    view.players[1]!.publicVP = 4;
+    view.players[2]!.publicVP = 2;
+    view.players[3]!.publicVP = 3;
+    const first = bot.decide(view);
+    expect(first).toMatchObject({ type: 'CONFIRM_TRADE', with: 3 });
+    s = apply(s, 0, first);
+    // A second offer: seat 3 accepts again but has already traded with us this turn.
+    s = apply(s, 0, bot.decide(toPlayerView(s, 0)));
+    s = answerAll(s, 'accept');
+    const again = bot.decide(toPlayerView(s, 0));
+    expect(again).toMatchObject({ type: 'CONFIRM_TRADE', with: 1 });
+  });
+
+  it('easy bots offer rarely, only 1-for-1, with one roll per turn', () => {
     const view = toPlayerView(scenario(), 0);
-    expect(decide(view, { difficulty: 'easy', random: () => 0.9 }).type).not.toBe('OFFER_TRADE');
-    expect(decide(view, { difficulty: 'easy', random: () => 0.1 })).toMatchObject({
+    let luck = 0.9;
+    const unlucky = new BotPlayer({ difficulty: 'easy', random: () => luck });
+    expect(unlucky.decide(view).type).not.toBe('OFFER_TRADE');
+    luck = 0.1; // asking again in the same turn doesn't re-roll
+    expect(unlucky.decide(view).type).not.toBe('OFFER_TRADE');
+    const lucky = new BotPlayer({ difficulty: 'easy', random: () => 0.1 });
+    expect(lucky.decide(view)).toMatchObject({
       type: 'OFFER_TRADE',
       give: resourcesOf({ wool: 1 }),
     });
+    // Stateless: the roll comes from the turn, so repeated calls agree.
+    const a = decide(view, { difficulty: 'easy', random: () => 0.1 });
+    expect(decide(view, { difficulty: 'easy', random: () => 0.9 })).toEqual(a);
+  });
+
+  it('easy bots use the bank for the last card of a city', () => {
+    const view = toPlayerView(scenario({ ore: 3, grain: 1, wool: 4 }), 0);
+    const action = decide(view, { difficulty: 'easy', random: () => 0.9 });
+    expect(action).toMatchObject({ type: 'MARITIME_TRADE', get: 'grain' });
   });
 });
 
@@ -251,6 +306,24 @@ describe('bot responses to offers', () => {
     s = apply(s, 1, counter);
     const next = decide(toPlayerView(s, 1), { difficulty: 'hard', random: rnd });
     expect(next).toEqual({ type: 'RESPOND_TRADE', offerId: 1, response: 'reject' });
-    expect(applyAction(s, 1, next).ok).toBe(true);
+    s = apply(s, 1, next);
+
+    // Seat 0 rejects the counter; before answering its next offer seat 1 withdraws it.
+    const counterId = s.trades.find((t) => t.counterTo === 1)!.id;
+    s = apply(s, 0, { type: 'RESPOND_TRADE', offerId: counterId, response: 'reject' });
+    expect(decide(toPlayerView(s, 1), { difficulty: 'hard', random: rnd })).toEqual({
+      type: 'CANCEL_TRADE',
+      offerId: counterId,
+    });
+  });
+
+  it('hard bots only substitute a card the offerer has asked for', () => {
+    // Same as above but without seat 0's wool request: no counter.
+    const s = offerToSeat1({ grain: 1 }, { ore: 1 });
+    expect(decide(toPlayerView(s, 1), { difficulty: 'hard', random: rnd })).toEqual({
+      type: 'RESPOND_TRADE',
+      offerId: 1,
+      response: 'reject',
+    });
   });
 });

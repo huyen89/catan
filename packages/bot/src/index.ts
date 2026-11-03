@@ -2,7 +2,10 @@ import {
   COSTS,
   RESOURCES,
   buildableSettlementVertices,
+  emptyResources,
   hasResources,
+  resourcesOf,
+  totalResources,
   type Action,
   type EdgeId,
   type HexId,
@@ -22,16 +25,16 @@ import {
   pips,
   scoreVertex,
   seatProduction,
-  sumCounts,
   type BuildTarget,
 } from './eval';
 import {
-  counts,
+  awaitingResponses,
   nearVictory,
   newMemo,
   offerKey,
   syncMemo,
   tradeGain,
+  turnRoll,
   validTrade,
   type BotMemo,
 } from './trading';
@@ -45,7 +48,7 @@ export interface BotOptions {
 }
 
 export { pips, scoreVertex } from './eval';
-export { newMemo, type BotMemo } from './trading';
+export { awaitingResponses, newMemo, type BotMemo } from './trading';
 
 /** Most offers a bot opens per turn (the engine allows more). */
 export const MAX_BOT_OFFERS_PER_TURN = 2;
@@ -92,9 +95,9 @@ export function decide(view: PlayerView, opts: BotOptions, memo?: BotMemo): Acti
       return bot.buildStep() ?? { type: 'PASS_SPECIAL_BUILD' };
     case 'main': {
       if (view.turn.current === me) return bot.mainTurn();
-      // Not our turn: withdraw any counter-offer we still have open.
-      const mine = view.trades.find((t) => t.from === me);
-      if (mine && can('CANCEL_TRADE')) return { type: 'CANCEL_TRADE', offerId: mine.id };
+      // Not our turn and nothing to answer (callers normally don't ask us then).
+      const withdraw = bot.withdrawCounter(() => true);
+      if (withdraw) return withdraw;
       break;
     }
     default:
@@ -229,7 +232,7 @@ class Bot {
 
   chooseDiscard(count: number): ResourceCounts {
     const hand = { ...this.hand };
-    const out: ResourceCounts = { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 };
+    const out = emptyResources();
     const need = COSTS[this.target()];
     for (let i = 0; i < count; i++) {
       // Drop from the resource we hold the most of beyond what the target needs.
@@ -310,7 +313,7 @@ class Bot {
       me.settlementsLeft > 0 &&
       L.settlementVertices.length === 0 &&
       // Don't burn resources on roads when a city is within reach.
-      !(this.target() === 'city' && sumCounts(missing(this.hand, COSTS.city)) <= 1);
+      !(this.target() === 'city' && totalResources(missing(this.hand, COSTS.city)) <= 1);
     if (this.can('BUILD_ROAD') && L.canAfford.road && L.roadEdges.length > 0 && wantRoad) {
       return { type: 'BUILD_ROAD', edge: this.bestRoad(L.roadEdges) };
     }
@@ -323,7 +326,8 @@ class Bot {
     const savingForCity =
       this.target() === 'city' &&
       L.cityVertices.length > 0 &&
-      sumCounts(missing(afterDev, COSTS.city)) > sumCounts(missing(this.hand, COSTS.city));
+      totalResources(missing(afterDev, COSTS.city)) >
+        totalResources(missing(this.hand, COSTS.city));
     if (this.can('BUY_DEV') && L.canAfford.devCard && !savingForCity) return { type: 'BUY_DEV' };
     return null;
   }
@@ -389,14 +393,22 @@ class Bot {
     return null;
   }
 
-  /** Trade surplus with the bank only when it brings the current target within reach. */
+  /**
+   * Trade surplus with the bank only when it brings the current target within reach. Easy bots
+   * only do it for the last card of a settlement or city (without it they can stall forever).
+   */
   private maritimeStep(): Action | null {
-    if (!this.can('MARITIME_TRADE') || this.opts.difficulty === 'easy') return null;
+    if (!this.can('MARITIME_TRADE')) return null;
     const target = this.target();
     const cost = COSTS[target];
     const need = missing(this.hand, cost);
-    const short = sumCounts(need);
+    const short = totalResources(need);
     if (short === 0 || short > 2) return null;
+    if (
+      this.opts.difficulty === 'easy' &&
+      !(short === 1 && (target === 'settlement' || target === 'city'))
+    )
+      return null;
     const get = RESOURCES.find((r) => need[r] > 0 && this.view.bank[r] > 0);
     if (!get) return null;
     const ratios = this.legal.maritimeRatios;
@@ -419,12 +431,26 @@ class Bot {
   private acceptBar(seat: Seat, give: ResourceCounts, get: ResourceCounts): number {
     const other = this.view.players[seat]!;
     const leader = other.publicVP >= this.view.players[this.me]!.publicVP + 2 ? 0.8 : 0;
-    const unfair = sumCounts(give) > sumCounts(get) ? 1 : 0;
+    const unfair = totalResources(give) > totalResources(get) ? 1 : 0;
     return 0.5 + leader + unfair;
+  }
+
+  /** Cancel one of our counter-offers matching `which`, if any. */
+  withdrawCounter(which: (t: TradeOffer) => boolean): Action | null {
+    if (!this.can('CANCEL_TRADE')) return null;
+    const t = this.view.trades.find((o) => o.from === this.me && o.counterTo !== null && which(o));
+    return t ? { type: 'CANCEL_TRADE', offerId: t.id } : null;
   }
 
   /** Accept, reject or (hard) counter an offer addressed to us. */
   respondTo(offer: TradeOffer): Action {
+    // First clear out our counters that were rejected or whose original offer is gone.
+    const stale = this.withdrawCounter(
+      (t) =>
+        !this.view.trades.some((o) => o.id === t.counterTo) ||
+        Object.values(t.responses).every((r) => r === 'reject'),
+    );
+    if (stale) return stale;
     const reply = (response: 'accept' | 'reject'): Action => ({
       type: 'RESPOND_TRADE',
       offerId: offer.id,
@@ -433,7 +459,11 @@ class Bot {
     // Our counter-offer replaces our answer to the original.
     if (this.view.trades.some((t) => t.from === this.me && t.counterTo === offer.id))
       return reply('reject');
-    if (this.likesTrade(offer)) return reply('accept');
+    if (this.likesTrade(offer)) {
+      // Accepting a counter to our own offer executes it at once.
+      if (offer.counterTo !== null) this.memo?.partners.push(offer.from);
+      return reply('accept');
+    }
     return this.counterFor(offer) ?? reply('reject');
   }
 
@@ -464,17 +494,15 @@ class Bot {
       return null;
     const cost = COSTS[this.target()];
     const need = missing(this.hand, cost);
-    const asked = sumCounts(offer.want);
+    const asked = totalResources(offer.want);
     const options: [give: ResourceCounts, want: ResourceCounts][] = [];
-    // Only offer a substitute the offerer plausibly wants: one they ask for elsewhere, or one
-    // they don't produce at all.
-    const theirProduction = seatProduction(this.view, offer.from);
+    // Only substitute a card the offerer has shown it needs: one it asks for in another of its
+    // offers this turn. (Guessing from what they don't produce was almost never accepted.)
     const theyWant = (s: Resource) =>
-      theirProduction[s] === 0 ||
-      this.view.trades.some((t) => t.from === offer.from && t.want[s] > 0);
+      this.view.trades.some((t) => t.from === offer.from && t.counterTo === null && t.want[s] > 0);
     for (const s of RESOURCES)
       if (need[s] === 0 && this.hand[s] - cost[s] >= asked && theyWant(s))
-        options.push([counts({ [s]: asked }), offer.give]);
+        options.push([resourcesOf({ [s]: asked }), offer.give]);
     if (asked > 1)
       for (const r of RESOURCES)
         if (offer.want[r] > 0)
@@ -499,7 +527,11 @@ class Bot {
     };
   }
 
-  /** Close one of our offers with an accepting seat, preferring the one with the fewest VP. */
+  /**
+   * Close one of our offers with an accepting seat: never one we already traded with this turn
+   * (their hand changed since they answered) or one about to win; prefer seats holding a card or
+   * more beyond what we ask for, then the fewest VP.
+   */
   private confirmStep(): Action | null {
     if (!this.can('CONFIRM_TRADE')) return null;
     for (const t of this.view.trades) {
@@ -510,11 +542,19 @@ class Bot {
         .map(([s]) => Number(s))
         .filter(
           (s) =>
-            this.view.players[s]!.resourceCount >= sumCounts(t.want) &&
+            this.view.players[s]!.resourceCount >= totalResources(t.want) &&
+            !this.memo?.partners.includes(s) &&
             (this.opts.difficulty === 'easy' || !nearVictory(this.view, s)),
         );
-      const partner = argmax(partners, (s) => -this.view.players[s]!.publicVP);
-      if (partner !== undefined) return { type: 'CONFIRM_TRADE', offerId: t.id, with: partner };
+      const partner = argmax(partners, (s) => {
+        const p = this.view.players[s]!;
+        const comfortable = p.resourceCount > totalResources(t.want) ? 100 : 0;
+        return comfortable - p.publicVP;
+      });
+      if (partner !== undefined) {
+        this.memo?.partners.push(partner);
+        return { type: 'CONFIRM_TRADE', offerId: t.id, with: partner };
+      }
     }
     return null;
   }
@@ -522,7 +562,8 @@ class Bot {
   /**
    * Ask the table for a card the current target is missing (one short; two for hard), paying with
    * spare cards: 1-for-1 first, then 2-for-1 (normal/hard). At most MAX_BOT_OFFERS_PER_TURN
-   * offers per turn (one for easy, and only sometimes), never repeating one made this turn.
+   * offers per turn (one for easy, and only sometimes), never repeating one made this turn, and
+   * never addressed to a player about to win (except by easy bots).
    */
   private offerStep(): Action | null {
     if (!this.can('OFFER_TRADE') || this.memo?.closing) return null;
@@ -531,20 +572,26 @@ class Bot {
     // Without a memo, our still-open offers are the record of what we tried this turn.
     const made = this.memo ? this.memo.offered.length : own.length;
     if (made >= (d === 'easy' ? 1 : MAX_BOT_OFFERS_PER_TURN)) return null;
-    if (own.some((t) => Object.values(t.responses).includes('pending'))) return null;
+    if (awaitingResponses(this.view, this.me)) return null;
 
     const others = this.view.players.filter((p) => p.seat !== this.me);
     const recipients = others
-      .filter((p) => p.resourceCount > 0 && !(d === 'hard' && nearVictory(this.view, p.seat)))
+      .filter((p) => p.resourceCount > 0 && (d === 'easy' || !nearVictory(this.view, p.seat)))
       .map((p) => p.seat);
     if (recipients.length === 0) return null;
 
     const cost = COSTS[this.target()];
     const need = missing(this.hand, cost);
-    const short = sumCounts(need);
+    const short = totalResources(need);
     // Hard bots also trade toward a target two cards away; others only for the last card.
     if (short === 0 || short > (d === 'hard' ? 2 : 1)) return null;
-    if (d === 'easy' && this.opts.random() >= 0.2) return null;
+    if (d === 'easy') {
+      // One roll per turn, so asking again doesn't raise the odds.
+      const roll = this.memo
+        ? (this.memo.easyRoll ??= this.opts.random())
+        : turnRoll(this.view, this.me);
+      if (roll >= 0.2) return null;
+    }
 
     const spare = RESOURCES.filter((r) => need[r] === 0 && this.hand[r] > cost[r]);
     const extra = (r: Resource) => this.hand[r] - cost[r];
@@ -555,20 +602,24 @@ class Bot {
     const options: { give: ResourceCounts; want: ResourceCounts; score: number }[] = [];
     for (const r of RESOURCES) {
       if (need[r] === 0) continue;
-      const want = counts({ [r]: 1 });
+      const want = resourcesOf({ [r]: 1 });
       for (const [i, s] of spare.entries()) {
         // Cheapest to give: what we hold most of and produce most of.
         options.push({
-          give: counts({ [s]: 1 }),
+          give: resourcesOf({ [s]: 1 }),
           want,
           score: 10 + extra(s) + this.production[s] * 0.1,
         });
         if (d === 'easy') continue;
         // 2-for-1 of one kind only when the bank wouldn't do it as cheaply.
         if (extra(s) >= 2 && this.legal.maritimeRatios[s] > 2)
-          options.push({ give: counts({ [s]: 2 }), want, score: extra(s) });
+          options.push({ give: resourcesOf({ [s]: 2 }), want, score: extra(s) });
         for (const s2 of spare.slice(i + 1))
-          options.push({ give: counts({ [s]: 1, [s2]: 1 }), want, score: extra(s) + extra(s2) });
+          options.push({
+            give: resourcesOf({ [s]: 1, [s2]: 1 }),
+            want,
+            score: extra(s) + extra(s2),
+          });
       }
     }
     const best = argmax(
