@@ -116,6 +116,22 @@ describe('engine property tests', () => {
     expect(finished / total).toBeGreaterThanOrEqual(0.8);
   }, 30_000);
 
+  it('regression: a settlement joining own road and ship lines refreshes the trade route', () => {
+    // These games build such a settlement; the award used to go stale (cached trail too short).
+    for (const seed of ['sf-1']) {
+      playRandomGame(
+        seed,
+        4,
+        700,
+        (s, step) => {
+          const bad = violations(s);
+          if (bad.length > 0) expect.fail(`${seed} ${JSON.stringify(step)} → ${bad.join('; ')}`);
+        },
+        { variant: 'seafarers', scenario: 'archipelago' },
+      );
+    }
+  }, 60_000);
+
   it('property: random Open Seas games reach gameOver', () => {
     const MAX_STEPS = 8000;
     let finished = 0;

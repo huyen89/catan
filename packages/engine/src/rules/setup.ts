@@ -53,7 +53,7 @@ const placeSettlement: Handler<'PLACE_SETTLEMENT'> = (ctx, a) => {
     }
   }
 
-  updateLongestRoad(ctx, seatsCutAt(ctx, a.vertex, ctx.seat));
+  updateLongestRoad(ctx, [ctx.seat, ...seatsCutAt(ctx, a.vertex, ctx.seat)]);
 };
 
 const placeRoad: Handler<'PLACE_ROAD'> = (ctx, a) => {

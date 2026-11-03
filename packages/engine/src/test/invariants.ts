@@ -130,11 +130,27 @@ export function violations(s: GameState): string[] {
   for (const e of s.turn.newShips) check(Object.hasOwn(s.ships, e), `new ship ${e} not on board`);
 
   // Cached longest-road lengths are fresh; award holders deserve their award.
+  const trails = s.players.map((p) => longestTrail(s, graph, p.seat));
   for (const p of s.players) {
-    const fresh = longestTrail(s, graph, p.seat);
+    const fresh = trails[p.seat]!;
     check(
       p.longestRoadLength === fresh,
       `seat ${p.seat} cached road ${p.longestRoadLength} ≠ ${fresh}`,
+    );
+  }
+  // Same checks on freshly computed trails, so a stale cache cannot hide a stale award: the
+  // holder has the longest trail (>= 5), and a unique longest trail (>= 5) holds the award. A tie
+  // keeps the previous holder, which a single state cannot see, so ties are allowed either way.
+  const freshMax = Math.max(...trails);
+  if (s.longestRoad !== null && isSeat(s.longestRoad)) {
+    const held = trails[s.longestRoad]!;
+    check(held >= 5 && held === freshMax, `longest road holder trail ${held}, max ${freshMax}`);
+  }
+  const freshLeaders = trails.flatMap((t, seat) => (t === freshMax ? [seat] : []));
+  if (freshMax >= 5 && freshLeaders.length === 1) {
+    check(
+      s.longestRoad === freshLeaders[0],
+      `seat ${freshLeaders[0]} has the unique longest trail`,
     );
   }
   const maxRoad = Math.max(...s.players.map((p) => p.longestRoadLength));
