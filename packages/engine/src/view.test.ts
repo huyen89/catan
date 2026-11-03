@@ -104,6 +104,42 @@ describe('toPlayerView', () => {
   });
 });
 
+/** Every object/array reachable from `root` (including root itself). */
+function reachableObjects(root: unknown, out = new Set<object>()): Set<object> {
+  if (root === null || typeof root !== 'object' || out.has(root)) return out;
+  out.add(root);
+  for (const v of Object.values(root)) reachableObjects(v, out);
+  return out;
+}
+
+describe('view aliasing', () => {
+  it('shares no object identity with the state, for any phase or viewer', () => {
+    const states: GameState[] = [];
+    for (const players of [4, 6]) {
+      playRandomGame(`alias-${players}`, players, 1500, (s) => {
+        if (s.version % 5 === 0) states.push(s);
+      });
+    }
+    const kinds = new Set(states.map((s) => s.phase.kind));
+    // The sample covers the phases with nested data, so the walk below is meaningful.
+    for (const k of ['setup', 'main', 'preRoll', 'discard', 'moveRobber'])
+      expect(kinds).toContain(k);
+    for (const s of states) {
+      const fromState = reachableObjects(s);
+      for (const viewer of [null, ...s.players.map((p) => p.seat)]) {
+        for (const o of reachableObjects(toPlayerView(s, viewer))) {
+          if (fromState.has(o))
+            expect.fail(`view for ${viewer} in ${s.phase.kind} aliases ${safe(o)}`);
+        }
+      }
+    }
+  });
+});
+
+function safe(o: object): string {
+  return JSON.stringify(o).slice(0, 120);
+}
+
 describe('redaction audit', () => {
   /** Fresh, mid/late and finished states for 4 and 6 players. */
   function sampleStates(): GameState[] {

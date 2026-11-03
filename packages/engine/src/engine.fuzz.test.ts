@@ -299,6 +299,31 @@ function assertEventsWellFormed(s: GameState, events: GameEvent[], label: string
   }
 }
 
+/** Payload-free or cheap-to-build action types checked in the reverse direction. */
+const REVERSE_CHECKED: ActionType[] = [
+  'ROLL',
+  'BUY_DEV',
+  'PLAY_KNIGHT',
+  'PLAY_ROAD_BUILDING',
+  'PLAY_YEAR_OF_PLENTY',
+  'PLAY_MONOPOLY',
+  'END_TURN',
+  'PASS_SPECIAL_BUILD',
+];
+
+/** The converse of "accepted ⇒ listed": what getLegal offers (for these types) must succeed. */
+function assertOfferedAccepted(state: GameState, seat: number, rnd: Rnd, label: string): void {
+  const legal = getLegal(state, seat);
+  for (const type of legal.actions) {
+    if (!REVERSE_CHECKED.includes(type)) continue;
+    const action = buildAction(state, seat, type, rnd, legal);
+    expect(action, `${label}: no payload for offered ${type}`).not.toBeNull();
+    const res = applyAction(state, seat, action!);
+    if (!res.ok)
+      expect.fail(`${label}: offered ${safeJson(action)} rejected: ${res.error.message}`);
+  }
+}
+
 function fuzzGame(seed: string, players: number, variant: VariantId, junkRate: number): void {
   let state = createGame(normalizeConfig({ players, variant }), seed);
   const rnd = seededRandom(`${seed}/fuzz`);
@@ -312,6 +337,7 @@ function fuzzGame(seed: string, players: number, variant: VariantId, junkRate: n
     const actors = getPendingActors(state);
     expect(actors.length, `no pending actor in ${state.phase.kind}`).toBeGreaterThan(0);
     const seat = pick(rnd, actors);
+    if (step % 3 === 0) assertOfferedAccepted(state, seat, rnd, `step ${step}`);
     const action = randomLegalAction(state, seat, rnd);
     expect(action, `seat ${seat} stuck in ${state.phase.kind}`).not.toBeNull();
     const res = applyAction(state, seat, action!);

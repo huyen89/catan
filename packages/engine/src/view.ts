@@ -114,6 +114,7 @@ const copyTrade = (t: TradeOffer): TradeOffer => ({
   responses: { ...t.responses },
 });
 
+/** Exhaustive over Phase kinds: a new kind does not compile until it is copied here. */
 function copyPhase(p: Phase): Phase {
   switch (p.kind) {
     case 'discard':
@@ -122,8 +123,17 @@ function copyPhase(p: Phase): Phase {
       return { ...p, candidates: [...p.candidates] };
     case 'specialBuild':
       return { ...p, queue: [...p.queue] };
-    default:
+    // Flat phases: only primitive fields, so a spread is a full copy.
+    case 'setup':
+    case 'preRoll':
+    case 'moveRobber':
+    case 'main':
+    case 'roadBuilding':
+    case 'gameOver':
       return { ...p };
+    default:
+      // A new phase kind must be added above (and its nested data copied) to compile.
+      return p satisfies never;
   }
 }
 

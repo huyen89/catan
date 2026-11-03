@@ -1,6 +1,6 @@
 import { graphFor, type BoardGraph } from './hex/topology';
 import { COSTS, hasResources, totalResources } from './resources';
-import { bankCanPay, playableDevCards } from './rules/devcards';
+import { bankCanPay, playableDevCards, roadBuildingCount } from './rules/devcards';
 import { canTradeMaritime } from './rules/maritime';
 import {
   buildableRoadEdges,
@@ -66,13 +66,15 @@ function addBuildOptions(out: LegalSummary, state: GameState, graph: BoardGraph,
 
 /**
  * Dev cards that would succeed for some payload. `roadEdges` are the seat's buildable road edges
- * (already computed by the caller, so the board is not scanned twice).
+ * when the caller already has them (so the board is not scanned twice); the road-building check
+ * is the handler's own roadBuildingCount, so the two cannot drift apart.
  */
 function addDevOptions(
   out: LegalSummary,
   state: GameState,
+  graph: BoardGraph,
   seat: Seat,
-  roadEdges: () => EdgeId[],
+  roadEdges?: () => readonly EdgeId[],
 ): void {
   const playable = playableDevCards(state, seat);
   if (playable.length === 0) return;
@@ -80,7 +82,7 @@ function addDevOptions(
   const cards: DevCardType[] = playable.filter(
     (c) =>
       (c !== 'yearOfPlenty' || bankHasTwo) &&
-      (c !== 'roadBuilding' || (state.players[seat]!.roadsLeft > 0 && roadEdges().length > 0)),
+      (c !== 'roadBuilding' || roadBuildingCount(state, graph, seat, roadEdges) > 0),
   );
   out.playableDev = cards;
   const ACTION: Record<string, ActionType> = {
@@ -145,7 +147,7 @@ export function getLegal(state: GameState, seat: Seat): LegalSummary {
     case 'preRoll':
       if (!isCurrent) break;
       out.actions.push('ROLL');
-      addDevOptions(out, state, seat, () => buildableRoadEdges(state, graph, seat));
+      addDevOptions(out, state, graph, seat);
       break;
     case 'discard':
       out.discardCount = ph.pending[String(seat)] ?? 0;
@@ -169,7 +171,7 @@ export function getLegal(state: GameState, seat: Seat): LegalSummary {
     case 'main':
       if (isCurrent) {
         addBuildOptions(out, state, graph, seat);
-        addDevOptions(out, state, seat, () => out.roadEdges);
+        addDevOptions(out, state, graph, seat, () => out.roadEdges);
         if (canTradeMaritime(state, seat, out.maritimeRatios)) out.actions.push('MARITIME_TRADE');
       }
       addTradeOptions(out, state, seat);
