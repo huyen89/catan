@@ -23,8 +23,14 @@ export type PieceKind = 'road' | 'ship';
 /** How far (in pieces beyond the candidate) a road or a shipping line is planned. */
 export const PLAN_DEPTH: Record<PieceKind, number> = { road: 3, ship: 6 };
 
+/**
+ * Discount per extra piece on the way to a spot. Shipping lines are long by nature (islands lie
+ * several edges off the coast), so a ship's distance is discounted less than a road's.
+ */
+export const STEP_DISCOUNT: Record<PieceKind, number> = { road: 1, ship: 0.6 };
+
 /** Score points per island-bonus VP: a new island's bonus is worth more than the settlement. */
-export const BONUS_WEIGHT = 4;
+export const BONUS_WEIGHT = 5;
 
 /** Island index of a land vertex, else null (all land hexes at a vertex share an island). */
 export function islandOfVertex(view: PlayerView, v: VertexId): number | null {
@@ -140,7 +146,7 @@ export class SeaPlanner {
       const next: VertexId[] = [];
       for (const v of frontier) {
         if (this.isLand(v) && isOpenSpot(this.view, v))
-          best = Math.max(best, this.spotValue(v) / (1 + d));
+          best = Math.max(best, this.spotValue(v) / (1 + d * STEP_DISCOUNT[kind]));
         const b = this.view.buildings[v];
         if (b && b.owner !== this.seat) continue; // an opponent's building blocks the line
         for (const e of graph.vertexEdges[v] ?? []) {
@@ -278,7 +284,7 @@ export function pirateDamage(view: PlayerView, me: Seat, h: HexId): number {
     const open = openShipEnd(view, view.ships, owner, e) !== null;
     if (owner === me) score -= open ? 4 : 2;
     else {
-      score += (open ? 3 : 1) * threat(view, owner);
+      score += (open ? 5 : 1.5) * threat(view, owner);
       owners.add(owner);
     }
   }

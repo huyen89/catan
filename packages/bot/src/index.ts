@@ -52,6 +52,9 @@ export { awaitingResponses, newMemo, type BotMemo } from './trading';
 /** Most offers a bot opens per turn (the engine allows more). */
 export const MAX_BOT_OFFERS_PER_TURN = 2;
 
+/** A ship plan scoring at least this (a good spot, usually with an island bonus) beats a city. */
+export const STRONG_SHIP_PLAN = 4;
+
 /**
  * Decide the next action for `view.viewer` given ONLY its redacted view (no hidden info).
  * Always returns an action drawn from `view.legal`; throws if the viewer has nothing to do.
@@ -325,14 +328,18 @@ class Bot {
     const hasSettlement = Object.values(this.view.buildings).some(
       (b) => b.owner === this.me && b.kind === 'settlement',
     );
+    // Open Seas: with no spot open, a ship line toward a strong spot (in practice a new island
+    // and its bonus) beats a city: ~3 VP for a few ships and a settlement.
+    const spots = me.settlementsLeft > 0 ? this.settlementSpots().length : 0;
+    const ship =
+      me.settlementsLeft > 0 && me.shipsLeft > 0 && spots === 0 ? this.expansion() : null;
+    const shipPlan = ship?.kind === 'ship' ? ship.score : 0;
+    if (shipPlan >= STRONG_SHIP_PLAN) return 'ship';
     if (hasSettlement && me.citiesLeft > 0 && (this.hand.ore >= 2 || this.hand.grain >= 2))
       return 'city';
-    if (me.settlementsLeft > 0 && this.settlementSpots().length > 0) return 'settlement';
-    // Open Seas: no spot open but a ship line leads to one (often a new island): save for it.
-    if (me.settlementsLeft > 0 && me.shipsLeft > 0) {
-      const plan = this.expansion();
-      if (plan?.kind === 'ship' && plan.score > 0.5) return 'ship';
-    }
+    if (spots > 0) return 'settlement';
+    // Otherwise any ship line that leads to a spot: save for it.
+    if (shipPlan > 0.5) return 'ship';
     if (hasSettlement && me.citiesLeft > 0) return 'city';
     if (this.view.devDeckCount > 0) return 'devCard';
     return 'road';
