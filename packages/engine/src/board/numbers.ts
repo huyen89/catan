@@ -35,6 +35,13 @@ export interface SlotRules {
  * 4. If even that is impossible (degenerate layouts only), an unconstrained shuffle.
  *
  * Fixed neighbours count as adjacent in steps 1-3: a slot next to a fixed 6/8 takes no 6/8.
+ *
+ * The fallbacks are coarse on purpose: each step drops a soft rule outright rather than
+ * minimising its violations. Once step 1 fails, equal neighbours (including equal fixed
+ * neighbours) are not avoided at all, and in step 3 any number of 6/8 may go on gold. On the
+ * shipped layouts step 1 always succeeds (the property tests assert zero equal neighbours and no
+ * 6/8 on gold over thousands of seeds), so the fallbacks only guarantee termination on degenerate
+ * layouts. Making them finer would change the RNG draws of seeds that reach them.
  * Without rules the RNG draws are exactly those of the rule-less algorithm (base boards unchanged).
  */
 export function placeRandomTokens(
