@@ -19,9 +19,9 @@ export const STUN_SERVER: IceServer = { urls: 'stun:stun.cloudflare.com:3478' };
 /** Fresh Cloudflare credentials are reused for this long per user to avoid hammering the API. */
 export const ICE_CACHE_MS = 60_000;
 const FETCH_TIMEOUT_MS = 5_000;
+/** Same bounds as TURN_TTL_SEC in config.ts (the source of truth); a defensive guard only. */
 const MIN_TTL_SEC = 60;
 const MAX_TTL_SEC = 48 * 3600;
-const DEFAULT_TTL_SEC = 6 * 3600;
 
 const cloudflareServerSchema = z.object({
   urls: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]),
@@ -33,7 +33,8 @@ const cloudflareResponseSchema = z.object({
 });
 
 function clampTtl(ttlSec: number): number {
-  if (!Number.isFinite(ttlSec)) return DEFAULT_TTL_SEC;
+  // Shortest lifetime when the value is nonsense: short credentials are the safe failure.
+  if (!Number.isFinite(ttlSec)) return MIN_TTL_SEC;
   return Math.min(MAX_TTL_SEC, Math.max(MIN_TTL_SEC, Math.floor(ttlSec)));
 }
 
@@ -159,23 +160,4 @@ export async function getIceServers(userId: string, cfg: IceConfig): Promise<Ice
   }
 
   return stunOnly;
-}
-
-/** Builds an IceConfig from environment variables (TURN_PROVIDER, CF_TURN_*, COTURN_*, TURN_TTL_SEC). */
-export function iceConfigFromEnv(env: NodeJS.ProcessEnv = process.env): IceConfig {
-  const raw = (env.TURN_PROVIDER ?? 'none').trim().toLowerCase();
-  const provider: IceConfig['provider'] = raw === 'cloudflare' || raw === 'coturn' ? raw : 'none';
-  const ttlRaw = env.TURN_TTL_SEC?.trim();
-  const ttlSec = ttlRaw ? clampTtl(Number(ttlRaw)) : DEFAULT_TTL_SEC;
-  return {
-    provider,
-    cloudflareKeyId: env.CF_TURN_KEY_ID?.trim() || undefined,
-    cloudflareApiToken: env.CF_TURN_API_TOKEN?.trim() || undefined,
-    coturnUrls: (env.COTURN_URLS ?? '')
-      .split(',')
-      .map((u) => u.trim())
-      .filter((u) => u.length > 0),
-    coturnSecret: env.COTURN_SECRET || undefined,
-    ttlSec,
-  };
 }
