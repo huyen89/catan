@@ -81,7 +81,12 @@ export function createFakeEngine(opts: { turnsToWin?: number } = {}): EngineApi 
           if (state.turn.number >= turnsToWin) {
             next.phase = { kind: 'gameOver', winner: seat };
             next.winner = seat;
-            events.push({ type: 'gameOver', winner: seat, vp: next.players.map(() => 0) });
+            // Final VP = cards held, so tests can steer scores with BUY_DEV.
+            events.push({
+              type: 'gameOver',
+              winner: seat,
+              vp: next.players.map((p) => p.devCards.length),
+            });
           } else {
             next.turn = { ...next.turn, current: (seat + 1) % state.players.length };
             next.turn.number++;
