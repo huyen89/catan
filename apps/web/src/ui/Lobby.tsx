@@ -220,7 +220,7 @@ function SettingsForm({ room, editable }: { room: RoomInfo; editable: boolean })
           <option value="auto">Automatic</option>
           <option value="base">Standard (3–4)</option>
           <option value="ext56">Large (5–6)</option>
-          <option value="seafarers">Open Seas (islands and ships)</option>
+          <option value="seafarers">Open Seas</option>
         </select>
       </label>
       {seas && (

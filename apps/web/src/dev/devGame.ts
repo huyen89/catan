@@ -61,7 +61,7 @@ export function createDevGame(
   return seasScene(state, opts.scene ?? 'main');
 }
 
-export function take(state: GameState, seat: Seat, r: Partial<ResourceCounts>): void {
+function take(state: GameState, seat: Seat, r: Partial<ResourceCounts>): void {
   const full = resourcesOf(r);
   for (const k of RESOURCES) {
     const n = Math.min(full[k], state.bank[k]);
