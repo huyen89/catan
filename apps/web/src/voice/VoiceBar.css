@@ -160,3 +160,61 @@
   margin: 0;
   accent-color: var(--vb-accent);
 }
+
+.vb-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.vb-route {
+  padding: 0 4px;
+  border: 1px solid var(--vb-border);
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 14px;
+  letter-spacing: 0.02em;
+  opacity: 0.8;
+  cursor: help;
+}
+.vb-route--relay {
+  border-color: #e8a10c;
+}
+
+.vb-diag {
+  font-size: 12px;
+}
+.vb-diag > summary {
+  cursor: pointer;
+  opacity: 0.75;
+}
+.vb-diag > summary:focus-visible {
+  outline: 2px solid var(--vb-accent);
+  outline-offset: 1px;
+}
+.vb-diag .vb-btn {
+  margin: 4px 0;
+}
+.vb-diag-result {
+  padding: 4px 6px;
+  border-left: 3px solid var(--vb-accent);
+  background: var(--vb-surface);
+}
+.vb-diag-result--warn {
+  border-left-color: #e8a10c;
+}
+.vb-diag-result--error {
+  border-left-color: var(--vb-danger);
+}
+.vb-diag-verdict {
+  margin: 0 0 4px;
+}
+.vb-diag-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 1px 8px;
+  margin: 0;
+}
+.vb-diag-list dd {
+  margin: 0;
+}

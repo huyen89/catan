@@ -33,27 +33,25 @@ FROM base AS prod-deps
 RUN pnpm install --frozen-lockfile --prod
 
 # ---------------------------------------------------------------- runtime
+# Hardened for `read_only: true`: code is owned by root (the app cannot modify itself), the
+# only writable places are the /data volume and a /tmp tmpfs (tsx's compile cache).
 FROM node:22-slim AS runtime
 ENV NODE_ENV=production \
-    COREPACK_HOME=/opt/corepack \
-    COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
     PORT=3000 \
     WEB_DIST=/app/apps/web/dist \
     DB_PATH=/data/hexhaven.sqlite
 WORKDIR /app
-# pnpm (via corepack) prepared at build time so the container never downloads it at runtime.
-COPY --from=base /opt/corepack /opt/corepack
-COPY --from=base /usr/local/lib/node_modules/corepack /usr/local/lib/node_modules/corepack
-RUN corepack enable \
- && chmod -R a+rX /opt/corepack \
- && mkdir -p /data && chown node:node /data
+RUN mkdir -p /data && chown node:node /data
 COPY --from=prod-deps /app /app
 COPY . .
 COPY --from=build /app/apps/web/dist /app/apps/web/dist
 
+# Unprivileged user (uid 1000) from the base image.
 USER node
 VOLUME ["/data"]
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
-CMD ["pnpm", "--filter", "@hexhaven/server", "run", "start"]
+  CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+# Node directly (no pnpm wrapper at runtime): signals reach the server and nothing writes to $HOME.
+WORKDIR /app/apps/server
+CMD ["node", "--import", "tsx", "src/index.ts"]
