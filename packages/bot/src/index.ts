@@ -1,6 +1,7 @@
 import {
   COSTS,
   RESOURCES,
+  buildableRoadEdges,
   buildableSettlementVertices,
   emptyResources,
   hasResources,
@@ -16,17 +17,15 @@ import {
   type TradeOffer,
   type VertexId,
 } from '@hexhaven/engine';
+import { argmax, boardInfo, missing, myHand, pips, seatProduction, type BuildTarget } from './eval';
 import {
-  argmax,
-  boardInfo,
-  isOpenSpot,
-  missing,
-  myHand,
-  pips,
-  scoreVertex,
-  seatProduction,
-  type BuildTarget,
-} from './eval';
+  SeaPlanner,
+  chooseGold,
+  ownShipsOn,
+  pirateDamage,
+  robberDamage,
+  type EdgePlan,
+} from './sea';
 import {
   awaitingResponses,
   nearVictory,
@@ -76,18 +75,36 @@ export function decide(view: PlayerView, opts: BotOptions, memo?: BotMemo): Acti
   }
 
   switch (view.phase.kind) {
-    case 'setup':
+    case 'setup': {
       if (can('PLACE_SETTLEMENT'))
         return { type: 'PLACE_SETTLEMENT', vertex: bot.bestSetupVertex() };
-      return { type: 'PLACE_ROAD', edge: bot.bestRoad(legal.roadEdges) };
+      const plan = bot.bestPiece(
+        can('PLACE_ROAD') ? legal.roadEdges : [],
+        can('PLACE_SHIP') ? legal.shipEdges : [],
+      );
+      if (plan)
+        return { type: plan.kind === 'road' ? 'PLACE_ROAD' : 'PLACE_SHIP', edge: plan.edge };
+      break;
+    }
     case 'discard':
       return { type: 'DISCARD', resources: bot.chooseDiscard(legal.discardCount) };
+    case 'goldChoice':
+      if (can('CHOOSE_GOLD'))
+        return { type: 'CHOOSE_GOLD', resources: bot.chooseGold(legal.goldCount) };
+      break;
     case 'moveRobber':
-      return { type: 'MOVE_ROBBER', hex: bot.bestRobberHex() };
+      return bot.moveRobberOrPirate();
     case 'steal':
       return { type: 'STEAL', victim: bot.bestVictim(legal.stealVictims) };
-    case 'roadBuilding':
-      return { type: 'BUILD_ROAD', edge: bot.bestRoad(legal.roadEdges) };
+    case 'roadBuilding': {
+      const plan = bot.bestPiece(
+        can('BUILD_ROAD') ? legal.roadEdges : [],
+        can('BUILD_SHIP') ? legal.shipEdges : [],
+      );
+      if (plan)
+        return { type: plan.kind === 'road' ? 'BUILD_ROAD' : 'BUILD_SHIP', edge: plan.edge };
+      break;
+    }
     case 'preRoll':
       if (can('PLAY_KNIGHT') && bot.wantsKnight(true)) return { type: 'PLAY_KNIGHT' };
       return { type: 'ROLL' };
@@ -157,68 +174,110 @@ class Bot {
 
   // ------------------------------------------------------------ placement
 
-  bestSetupVertex(): VertexId {
-    return this.pick(this.legal.settlementVertices, (v) =>
-      scoreVertex(this.view, this.me, v, this.production),
-    );
+  /** Road and ship planner for this decision (island bonuses included in spot values). */
+  get planner(): SeaPlanner {
+    return (this.cachedPlanner ??= new SeaPlanner(this.view, this.me, this.production));
   }
 
-  /** Score a road by the best open settlement spot it leads toward (BFS ≤ 3 steps). */
-  bestRoad(edges: readonly EdgeId[]): EdgeId {
+  private cachedPlanner: SeaPlanner | undefined;
+
+  /** Value of a settlement on `v` for us (production, port, island bonus). */
+  spotValue(v: VertexId): number {
+    return this.planner.spotValue(v);
+  }
+
+  bestSetupVertex(): VertexId {
+    return this.pick(this.legal.settlementVertices, (v) => this.spotValue(v));
+  }
+
+  /** The best road or ship among the candidates (by the spot it leads toward), or null. */
+  bestPiece(roads: readonly EdgeId[], ships: readonly EdgeId[]): EdgePlan | null {
+    return this.planner.best(roads, ships, () => this.noise());
+  }
+
+  /**
+   * Where expansion should go next if no settlement spot is open: the best road or ship over
+   * every edge we could build on (ignoring affordability). Null when nothing is buildable.
+   */
+  expansion(): EdgePlan | null {
+    if (this.cachedExpansion !== undefined) return this.cachedExpansion;
+    const L = this.legal;
+    const roads = L.roadEdges.length > 0 ? L.roadEdges : this.buildableRoads();
+    const ships = L.shipEdges.length > 0 ? L.shipEdges : this.buildableShips();
+    // No noise: target() must stay stable within a turn.
+    return (this.cachedExpansion = this.planner.best(roads, ships, () => 0));
+  }
+
+  private cachedExpansion: EdgePlan | null | undefined;
+
+  private buildableRoads(): EdgeId[] {
+    if (this.view.players[this.me]!.roadsLeft <= 0) return [];
+    return buildableRoadEdges(this.view, boardInfo(this.view).graph, this.me);
+  }
+
+  private buildableShips(): EdgeId[] {
+    if (this.view.players[this.me]!.shipsLeft <= 0) return [];
     const { graph } = boardInfo(this.view);
-    const mine = new Set<VertexId>();
-    for (const [e, s] of Object.entries(this.view.roads))
-      if (s === this.me) for (const v of graph.edgeVertices[e] ?? []) mine.add(v);
-    for (const [v, b] of Object.entries(this.view.buildings)) if (b.owner === this.me) mine.add(v);
-
-    const reach = (start: VertexId): number => {
-      let best = 0;
-      const seen = new Set([start]);
-      let frontier = [start];
-      for (let d = 0; d <= 3 && frontier.length; d++) {
-        const next: VertexId[] = [];
-        for (const v of frontier) {
-          if (isOpenSpot(this.view, v))
-            best = Math.max(best, scoreVertex(this.view, this.me, v, this.production) / (1 + d));
-          const b = this.view.buildings[v];
-          if (b && b.owner !== this.me) continue; // blocked
-          for (const n of graph.vertexNeighbors[v] ?? []) {
-            if (!seen.has(n)) {
-              seen.add(n);
-              next.push(n);
-            }
-          }
-        }
-        frontier = next;
-      }
-      return best;
-    };
-
-    return this.pick(edges, (e) => {
-      const [a, b] = graph.edgeVertices[e]!;
-      const far = mine.has(a) && !mine.has(b) ? b : mine.has(b) && !mine.has(a) ? a : b;
-      return reach(far);
+    // Same rule as the engine: a free sea edge off the pirate's hex touching our building, or
+    // our ship at a vertex without an opponent's building.
+    const { ships, roads, buildings, pirate } = this.view;
+    return graph.seaEdges.filter((e) => {
+      if (Object.hasOwn(ships, e) || Object.hasOwn(roads, e)) return false;
+      if (pirate !== null && graph.edgeHexes[e]!.includes(pirate)) return false;
+      return graph.edgeVertices[e]!.some((u) => {
+        const b = buildings[u];
+        if (b) return b.owner === this.me;
+        return graph.vertexEdges[u]!.some((x) => x !== e && ships[x] === this.me);
+      });
     });
+  }
+
+  /**
+   * Move one open-ended ship when another spot is clearly better: the ship's current line leads
+   * nowhere useful (taken spot, dead end) and a free edge points at a good spot or new island.
+   */
+  moveShipStep(): Action | null {
+    if (!this.can('MOVE_SHIP') || this.view.longestRoad === this.me) return null;
+    let best: { from: EdgeId; to: EdgeId; gain: number } | null = null;
+    for (const [from, targets] of Object.entries(this.legal.shipMoves)) {
+      const end = this.planner.openEnd(from);
+      const keep = end === null ? Infinity : this.planner.reach(end, 'ship');
+      const lifted = this.planner.without(from);
+      for (const to of targets) {
+        const gain = lifted.edgeValue(to, 'ship') - keep;
+        if (gain > 1 && (!best || gain > best.gain)) best = { from, to, gain };
+      }
+    }
+    return best ? { type: 'MOVE_SHIP', from: best.from, to: best.to } : null;
   }
 
   // ------------------------------------------------------------ robber
 
   bestRobberHex(): HexId {
-    const { graph, hexById: hexes } = boardInfo(this.view);
-    return this.pick(this.legal.robberHexes, (h) => {
-      let score = 0;
-      for (const v of graph.hexVertices[h] ?? []) {
-        const b = this.view.buildings[v];
-        if (!b) continue;
-        const weight = (b.kind === 'city' ? 2 : 1) * pips(hexes.get(h)?.token ?? null);
-        if (b.owner === this.me) score -= weight * 3;
-        else {
-          const opp = this.view.players[b.owner]!;
-          score += weight * (1 + opp.publicVP / 4) + (opp.resourceCount > 0 ? 1 : 0);
-        }
-      }
-      return score;
-    });
+    return this.pick(this.legal.robberHexes, (h) => robberDamage(this.view, this.me, h));
+  }
+
+  /**
+   * On a 7 or a knight: move the robber or (Open Seas) the pirate, whichever does more damage
+   * to the leaders. Moving one leaves the other where it is, so whatever the other currently
+   * does to us counts against choosing it.
+   */
+  moveRobberOrPirate(): Action {
+    const L = this.legal;
+    const robber = this.can('MOVE_ROBBER') ? this.bestRobberHex() : null;
+    if (!this.can('MOVE_PIRATE') || L.pirateHexes.length === 0) {
+      return { type: 'MOVE_ROBBER', hex: robber ?? L.robberHexes[0]! };
+    }
+    const pirate = this.pick(L.pirateHexes, (h) => pirateDamage(this.view, this.me, h));
+    if (robber === null) return { type: 'MOVE_PIRATE', hex: pirate };
+    // What staying put costs us: the robber's grip on our hexes, the pirate's on our ships.
+    const robberStays = -Math.min(0, robberDamage(this.view, this.me, this.view.robber));
+    const pirateStays = ownShipsOn(this.view, this.me, this.view.pirate) * 3;
+    const viaRobber = robberDamage(this.view, this.me, robber) - pirateStays;
+    const viaPirate = pirateDamage(this.view, this.me, pirate) - robberStays;
+    return viaPirate > viaRobber
+      ? { type: 'MOVE_PIRATE', hex: pirate }
+      : { type: 'MOVE_ROBBER', hex: robber };
   }
 
   bestVictim(victims: readonly Seat[]): Seat {
@@ -228,7 +287,12 @@ class Bot {
     });
   }
 
-  // ------------------------------------------------------------ discards
+  // ------------------------------------------------------------ discards and gold
+
+  /** Gold (Open Seas): resources toward the current target first. */
+  chooseGold(count: number): ResourceCounts {
+    return chooseGold(this.hand, this.production, this.view.bank, COSTS[this.target()], count);
+  }
 
   chooseDiscard(count: number): ResourceCounts {
     const hand = { ...this.hand };
@@ -264,6 +328,11 @@ class Bot {
     if (hasSettlement && me.citiesLeft > 0 && (this.hand.ore >= 2 || this.hand.grain >= 2))
       return 'city';
     if (me.settlementsLeft > 0 && this.settlementSpots().length > 0) return 'settlement';
+    // Open Seas: no spot open but a ship line leads to one (often a new island): save for it.
+    if (me.settlementsLeft > 0 && me.shipsLeft > 0) {
+      const plan = this.expansion();
+      if (plan?.kind === 'ship' && plan.score > 0.5) return 'ship';
+    }
     if (hasSettlement && me.citiesLeft > 0) return 'city';
     if (this.view.devDeckCount > 0) return 'devCard';
     return 'road';
@@ -283,6 +352,9 @@ class Bot {
         (v) => this.view.buildings[v]?.owner === this.me,
       );
     if (robberHurtsMe) return true;
+    // Open Seas: the pirate sits on our shipping line and we are building ships.
+    if (ownShipsOn(this.view, this.me, this.view.pirate) > 0 && this.target() === 'ship')
+      return true;
     if (beforeRoll) return false;
     const mine = this.view.players[this.me]!.playedKnights + 1;
     const others = Math.max(
@@ -299,24 +371,15 @@ class Bot {
     if (this.can('BUILD_CITY') && L.cityVertices.length > 0 && L.canAfford.city) {
       return {
         type: 'BUILD_CITY',
-        vertex: this.pick(L.cityVertices, (v) =>
-          scoreVertex(this.view, this.me, v, this.production),
-        ),
+        vertex: this.pick(L.cityVertices, (v) => this.spotValue(v)),
       };
     }
     if (this.can('BUILD_SETTLEMENT') && L.settlementVertices.length > 0 && L.canAfford.settlement) {
       return { type: 'BUILD_SETTLEMENT', vertex: this.bestSetupVertex() };
     }
     if (easySkip) return null;
-    const me = this.view.players[this.me]!;
-    const wantRoad =
-      me.settlementsLeft > 0 &&
-      L.settlementVertices.length === 0 &&
-      // Don't burn resources on roads when a city is within reach.
-      !(this.target() === 'city' && totalResources(missing(this.hand, COSTS.city)) <= 1);
-    if (this.can('BUILD_ROAD') && L.canAfford.road && L.roadEdges.length > 0 && wantRoad) {
-      return { type: 'BUILD_ROAD', edge: this.bestRoad(L.roadEdges) };
-    }
+    const piece = this.expandStep();
+    if (piece) return piece;
     const afterDev = {
       ...this.hand,
       wool: this.hand.wool - 1,
@@ -332,11 +395,41 @@ class Bot {
     return null;
   }
 
+  /**
+   * A road or (Open Seas) a ship toward the next settlement spot, when no spot is open. Roads are
+   * built as before even without a spot in reach; a ship only when it leads to one. If the better
+   * piece is unaffordable we wait for it unless the other is nearly as good.
+   */
+  private expandStep(): Action | null {
+    const L = this.legal;
+    const me = this.view.players[this.me]!;
+    const want =
+      me.settlementsLeft > 0 &&
+      L.settlementVertices.length === 0 &&
+      // Don't burn resources on roads or ships when a city is within reach.
+      !(this.target() === 'city' && totalResources(missing(this.hand, COSTS.city)) <= 1);
+    if (!want) return null;
+    const canRoad = this.can('BUILD_ROAD') && L.canAfford.road && L.roadEdges.length > 0;
+    const canShip = this.can('BUILD_SHIP') && L.canAfford.ship && L.shipEdges.length > 0;
+    if (!canRoad && !canShip) return null;
+    const road = L.roadEdges.length > 0 ? this.bestPiece(L.roadEdges, []) : null;
+    const ship = L.shipEdges.length > 0 ? this.bestPiece([], L.shipEdges) : null;
+    const shipUseful = ship !== null && ship.score > 0.5;
+    const shipBetter = shipUseful && (road === null || ship.score > road.score);
+    if (canShip && shipUseful && (shipBetter || ship.score >= road!.score * 0.7))
+      return { type: 'BUILD_SHIP', edge: ship.edge };
+    if (canRoad && road && (!shipBetter || road.score >= ship!.score * 0.7))
+      return { type: 'BUILD_ROAD', edge: road.edge };
+    return null;
+  }
+
   mainTurn(): Action {
     const confirm = this.confirmStep();
     if (confirm) return confirm;
     const dev = this.devStep();
     if (dev) return dev;
+    const move = this.moveShipStep();
+    if (move) return move;
     const build = this.buildStep();
     if (build) return build;
     const offer = this.offerStep();
@@ -366,7 +459,7 @@ class Bot {
     const me = this.view.players[this.me]!;
     if (
       this.can('PLAY_ROAD_BUILDING') &&
-      me.roadsLeft >= 2 &&
+      (me.roadsLeft >= 2 || (me.shipsLeft >= 2 && this.expansion()?.kind === 'ship')) &&
       me.settlementsLeft > 0 &&
       L.settlementVertices.length === 0
     ) {
