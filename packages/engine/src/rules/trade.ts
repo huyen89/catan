@@ -182,7 +182,12 @@ const confirmTrade: Handler<'CONFIRM_TRADE'> = (ctx, a) => {
   if (!offer) return err('INVALID_TRADE', 'No such offer');
   const notYours = expectSeat(ctx, offer.from);
   if (notYours) return notYours;
-  if (offer.counterTo !== null || offer.responses[String(a.with)] !== 'accept') {
+  // `with` must be a real seat number: "1" would otherwise match the "1" response key.
+  if (
+    !Number.isInteger(a.with) ||
+    offer.counterTo !== null ||
+    offer.responses[String(a.with)] !== 'accept'
+  ) {
     return err('INVALID_TRADE', 'That player has not accepted this offer');
   }
   return execute(ctx, offer, a.with);

@@ -11,14 +11,17 @@ import {
   SILENT,
   clampVolume,
   iceNeedsRefresh,
+  iceRestartDelay,
   isPolite,
   joinErrorMessage,
   micErrorMessage,
-  parseIceResponse,
+  mutedFromAck,
   rms,
+  selectedRoute,
   updateSpeaking,
   type SpeakingTracker,
 } from './logic';
+import { fetchIceServers } from './iceServers';
 import type { PeerVoice, VoiceState } from './store';
 
 type SetState = (partial: Partial<VoiceState> | ((s: VoiceState) => Partial<VoiceState>)) => void;
@@ -31,6 +34,10 @@ export interface VoiceManagerDeps {
 const ACK_TIMEOUT_MS = 8000;
 const SPEAKING_INTERVAL_MS = 100;
 const REJOIN_WAIT_MS = 1500;
+/** A restart that has not reconnected by then may be retried. */
+const RESTART_RETRY_MS = 10_000;
+/** The selected pair can still change right after connecting (e.g. host → relay); look again. */
+const ROUTE_RECHECK_MS = 3000;
 const VOLUME_KEY = 'hexhaven.voice.volumes';
 
 const MIC_CONSTRAINTS: MediaStreamConstraints = {
@@ -72,6 +79,14 @@ interface Peer {
   ignoreOffer: boolean;
   settingRemoteAnswer: boolean;
   restarting: boolean;
+  /** Pending ICE restart (ICE 'disconnected' for a while), or the retry guard. */
+  restartTimer: ReturnType<typeof setTimeout> | null;
+  /** Bumped per restartIce() call so a stale async attempt can tell it was superseded. */
+  restartAttempt: number;
+  /** One delayed getStats re-check after connecting. */
+  routeTimer: ReturnType<typeof setTimeout> | null;
+  /** ICE transport whose onselectedcandidatepairchange we listen to (where supported). */
+  iceTransport: RTCIceTransport | null;
   /** Serializes incoming signals so description/candidate order is preserved. */
   queue: Promise<void>;
   audio: HTMLAudioElement;
@@ -246,13 +261,8 @@ export class VoiceManager {
   async debugCandidates(): Promise<Record<string, string>> {
     const out: Record<string, string> = {};
     for (const [id, p] of this.peers) {
-      const stats = await p.pc.getStats();
-      stats.forEach((s: RTCStats & Record<string, unknown>) => {
-        if (s.type !== 'candidate-pair' || !s.nominated || s.state !== 'succeeded') return;
-        const local = stats.get(s.localCandidateId as string) as { candidateType?: string };
-        const remote = stats.get(s.remoteCandidateId as string) as { candidateType?: string };
-        out[id] = `${local?.candidateType}/${remote?.candidateType}`;
-      });
+      const route = selectedRoute((await p.pc.getStats()).values());
+      if (route) out[id] = `${route.local}/${route.remote}`;
     }
     return out;
   }
@@ -271,17 +281,9 @@ export class VoiceManager {
   }
 
   private async refreshIce(): Promise<void> {
-    try {
-      const res = await fetch('/api/voice/ice', { credentials: 'include' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const { iceServers, ttl } = parseIceResponse(await res.json());
-      this.iceServers = iceServers;
-      this.iceTtl = ttl;
-    } catch (err) {
-      console.warn('[voice] could not fetch ICE servers, using STUN only', err);
-      this.iceServers = FALLBACK_ICE_SERVERS;
-      this.iceTtl = 3600;
-    }
+    const { iceServers, ttl } = await fetchIceServers();
+    this.iceServers = iceServers;
+    this.iceTtl = ttl;
     this.iceFetchedAt = Date.now();
   }
 
@@ -300,6 +302,9 @@ export class VoiceManager {
     session.joined = true;
     session.reconnecting = false;
     this.deps.setState({ joined: true, joining: false, muted: this.muted, error: null });
+    // The ack's mic states are newer than any voice:state seen before joining.
+    this.remoteMuted.clear();
+    for (const [id, muted] of mutedFromAck(ack.data.peers)) this.remoteMuted.set(id, muted);
     for (const peer of ack.data.peers) this.ensurePeer(peer.userId);
     // The server marks a fresh join as muted; restore an open mic after a reconnect.
     if (!this.muted) this.emitState();
@@ -513,6 +518,10 @@ export class VoiceManager {
       ignoreOffer: false,
       settingRemoteAnswer: false,
       restarting: false,
+      restartTimer: null,
+      restartAttempt: 0,
+      routeTimer: null,
+      iceTransport: null,
       queue: Promise.resolve(),
       audio,
       meter: null,
@@ -525,6 +534,7 @@ export class VoiceManager {
       speaking: false,
       muted: peer.muted,
       volume: audio.volume,
+      route: null,
     });
 
     pc.onicecandidate = ({ candidate }) => {
@@ -552,11 +562,8 @@ export class VoiceManager {
     pc.onconnectionstatechange = () => {
       if (this.peers.get(userId) !== peer) return;
       this.patchPeer(userId, { connection: pc.connectionState });
-      if (pc.connectionState === 'connected') peer.restarting = false;
     };
-    pc.oniceconnectionstatechange = () => {
-      if (pc.iceConnectionState === 'failed') void this.restartIce(peer);
-    };
+    pc.oniceconnectionstatechange = () => this.onIceState(peer);
     pc.ontrack = (ev) => {
       const stream = ev.streams[0] ?? new MediaStream([ev.track]);
       if (audio.srcObject !== stream) audio.srcObject = stream;
@@ -616,19 +623,98 @@ export class VoiceManager {
     }
   }
 
+  /**
+   * ICE 'failed' restarts at once; 'disconnected' often heals by itself, so it restarts only
+   * if it lasts ICE_DISCONNECTED_GRACE_MS. Recovering cancels a pending restart.
+   */
+  private onIceState(peer: Peer): void {
+    if (this.peers.get(peer.userId) !== peer) return;
+    const state = peer.pc.iceConnectionState;
+    if (state === 'connected' || state === 'completed') {
+      peer.restarting = false;
+      this.watchRoute(peer);
+    }
+    const delay = iceRestartDelay(state);
+    if (peer.restarting) return;
+    this.clearRestartTimer(peer);
+    if (delay === null) return;
+    if (delay === 0) {
+      void this.restartIce(peer);
+      return;
+    }
+    peer.restartTimer = setTimeout(() => {
+      peer.restartTimer = null;
+      if (peer.pc.iceConnectionState === 'disconnected') void this.restartIce(peer);
+    }, delay);
+  }
+
+  private clearRestartTimer(peer: Peer): void {
+    if (peer.restartTimer) clearTimeout(peer.restartTimer);
+    peer.restartTimer = null;
+  }
+
+  /**
+   * restartIce() with perfect negotiation: it fires negotiationneeded and the normal
+   * offer/answer path (with collision handling) carries the new ICE credentials.
+   */
   private async restartIce(peer: Peer): Promise<void> {
     if (peer.restarting || this.peers.get(peer.userId) !== peer) return;
     peer.restarting = true;
+    const attempt = ++peer.restartAttempt;
+    this.clearRestartTimer(peer);
     if (iceNeedsRefresh(this.iceFetchedAt, this.iceTtl, Date.now())) {
       await this.refreshIce();
+      // While we waited, the peer may have closed, ICE may have recovered by itself (which
+      // clears `restarting`), or a newer attempt may have started: then don't restart.
       if (this.peers.get(peer.userId) !== peer) return;
+      if (!peer.restarting || peer.restartAttempt !== attempt) return;
+      const state = peer.pc.iceConnectionState;
+      if (state === 'connected' || state === 'completed') {
+        peer.restarting = false;
+        return;
+      }
       peer.pc.setConfiguration({ ...peer.pc.getConfiguration(), iceServers: this.iceServers });
     }
     peer.pc.restartIce();
-    // Allow another attempt if this one fails too.
-    setTimeout(() => {
+    // Allow another attempt if this one has not reconnected by then.
+    peer.restartTimer = setTimeout(() => {
+      peer.restartTimer = null;
       peer.restarting = false;
-    }, 10_000);
+      this.onIceState(peer);
+    }, RESTART_RETRY_MS);
+  }
+
+  /**
+   * Keep the route badge current: read it now, once more shortly after (the pair can still
+   * switch), and on every selected-pair change where the browser exposes the ICE transport.
+   */
+  private watchRoute(peer: Peer): void {
+    void this.updateRoute(peer);
+    if (peer.routeTimer) clearTimeout(peer.routeTimer);
+    peer.routeTimer = setTimeout(() => {
+      peer.routeTimer = null;
+      void this.updateRoute(peer);
+    }, ROUTE_RECHECK_MS);
+    const transport =
+      peer.pc.getReceivers()[0]?.transport?.iceTransport ??
+      peer.pc.getSenders()[0]?.transport?.iceTransport ??
+      null;
+    if (transport && transport !== peer.iceTransport) {
+      if (peer.iceTransport) peer.iceTransport.onselectedcandidatepairchange = null;
+      peer.iceTransport = transport;
+      transport.onselectedcandidatepairchange = () => void this.updateRoute(peer);
+    }
+  }
+
+  /** Record which candidate pair carries this peer's audio (badge: LAN / P2P / TURN). */
+  private async updateRoute(peer: Peer): Promise<void> {
+    if (this.peers.get(peer.userId) !== peer) return;
+    try {
+      const route = selectedRoute((await peer.pc.getStats()).values());
+      if (this.peers.get(peer.userId) === peer) this.patchPeer(peer.userId, { route });
+    } catch {
+      // Stats unavailable (closed connection); keep the previous value.
+    }
   }
 
   private sendDescription(peer: Peer): void {
@@ -650,6 +736,11 @@ export class VoiceManager {
     const peer = this.peers.get(userId);
     if (!peer) return;
     this.peers.delete(userId);
+    this.clearRestartTimer(peer);
+    if (peer.routeTimer) clearTimeout(peer.routeTimer);
+    peer.routeTimer = null;
+    if (peer.iceTransport) peer.iceTransport.onselectedcandidatepairchange = null;
+    peer.iceTransport = null;
     peer.pc.onicecandidate = null;
     peer.pc.onnegotiationneeded = null;
     peer.pc.onconnectionstatechange = null;
@@ -681,6 +772,7 @@ export class VoiceManager {
         speaking: false,
         muted: true,
         volume: this.volumes.get(userId) ?? 1,
+        route: null,
       };
       return { peers: { ...s.peers, [userId]: { ...base, ...patch } } };
     });

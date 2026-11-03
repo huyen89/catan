@@ -16,10 +16,23 @@ import {
   RESOURCES,
   type ActionType,
   type DevCardType,
+  type EdgeId,
   type GameState,
   type LegalSummary,
   type Seat,
 } from './types';
+
+/**
+ * graphFor re-derives its cache key from every hex on each call; toPlayerView calls getLegal once
+ * per seat on the same state, so remember the graph per board object (the graph depends only on
+ * the hex coordinates, which never change during a game).
+ */
+const graphs = new WeakMap<GameState['board'], BoardGraph>();
+function boardGraph(board: GameState['board']): BoardGraph {
+  let g = graphs.get(board);
+  if (!g) graphs.set(board, (g = graphFor(board)));
+  return g;
+}
 
 function emptySummary(): LegalSummary {
   return {
@@ -51,13 +64,25 @@ function addBuildOptions(out: LegalSummary, state: GameState, graph: BoardGraph,
   if (out.canAfford.devCard && state.devDeck.length > 0) out.actions.push('BUY_DEV');
 }
 
-/** Dev cards that would succeed for some payload. */
-function addDevOptions(out: LegalSummary, state: GameState, graph: BoardGraph, seat: Seat): void {
+/**
+ * Dev cards that would succeed for some payload. `roadEdges` are the seat's buildable road edges
+ * when the caller already has them (so the board is not scanned twice); the road-building check
+ * is the handler's own roadBuildingCount, so the two cannot drift apart.
+ */
+function addDevOptions(
+  out: LegalSummary,
+  state: GameState,
+  graph: BoardGraph,
+  seat: Seat,
+  roadEdges?: () => readonly EdgeId[],
+): void {
+  const playable = playableDevCards(state, seat);
+  if (playable.length === 0) return;
   const bankHasTwo = RESOURCES.some((a) => RESOURCES.some((b) => bankCanPay(state.bank, [a, b])));
-  const cards: DevCardType[] = playableDevCards(state, seat).filter(
+  const cards: DevCardType[] = playable.filter(
     (c) =>
       (c !== 'yearOfPlenty' || bankHasTwo) &&
-      (c !== 'roadBuilding' || roadBuildingCount(state, graph, seat) > 0),
+      (c !== 'roadBuilding' || roadBuildingCount(state, graph, seat, roadEdges) > 0),
   );
   out.playableDev = cards;
   const ACTION: Record<string, ActionType> = {
@@ -96,7 +121,7 @@ export function getLegal(state: GameState, seat: Seat): LegalSummary {
   const out = emptySummary();
   const p = state.players[seat];
   if (!p) return out;
-  const graph = graphFor(state.board);
+  const graph = boardGraph(state.board);
   out.maritimeRatios = maritimeRatios(state, seat);
   out.canAfford = {
     road: hasResources(p.resources, COSTS.road),
@@ -146,8 +171,8 @@ export function getLegal(state: GameState, seat: Seat): LegalSummary {
     case 'main':
       if (isCurrent) {
         addBuildOptions(out, state, graph, seat);
-        addDevOptions(out, state, graph, seat);
-        if (canTradeMaritime(state, seat)) out.actions.push('MARITIME_TRADE');
+        addDevOptions(out, state, graph, seat, () => out.roadEdges);
+        if (canTradeMaritime(state, seat, out.maritimeRatios)) out.actions.push('MARITIME_TRADE');
       }
       addTradeOptions(out, state, seat);
       if (isCurrent) out.actions.push('END_TURN');

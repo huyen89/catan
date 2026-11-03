@@ -98,7 +98,11 @@ export class Room {
     this.seats = seats ?? Array.from({ length: settings.maxSeats }, openSeat);
   }
 
-  static fromRow(row: RoomRow, lookup: (userId: string) => Identity | null): Room {
+  static fromRow(
+    row: RoomRow,
+    lookup: (userId: string) => Identity | null,
+    kicked: readonly string[] = [],
+  ): Room {
     const seats = Array.from({ length: row.settings.maxSeats }, (_, i): SeatState => {
       const s = row.seats.find((x) => x.idx === i);
       if (!s || s.kind === 'open' || (s.kind === 'human' && !s.userId)) return openSeat();
@@ -106,7 +110,7 @@ export class Room {
       const who = lookup(s.userId!) ?? { userId: s.userId!, name: s.name, avatarUrl: null };
       return { ...humanSeat(who), botDifficulty: s.botDifficulty };
     });
-    return new Room(
+    const room = new Room(
       row.id,
       row.code,
       row.hostUserId,
@@ -115,6 +119,8 @@ export class Room {
       row.status,
       seats,
     );
+    for (const id of kicked) room.kicked.add(id);
+    return room;
   }
 
   toRow(now: number): Omit<RoomRow, 'createdAt'> & { createdAt: number } {
@@ -272,6 +278,37 @@ export class Room {
     for (const m of this.members.values())
       if (m.userId !== this.hostUserId && m.sockets.size > 0) return m.userId;
     return null;
+  }
+
+  /** Every seat un-ready and driven by its own kind (before a game starts or a rematch). */
+  resetSeatControl(): void {
+    for (const s of this.seats) {
+      s.ready = false;
+      s.controller = s.kind === 'bot' ? 'bot' : 'human';
+    }
+  }
+
+  /**
+   * Host only, after the game ended: back to the lobby with the same seats. Humans must ready up
+   * again; bots (including seats a bot took over from kicked players) stay. Seats of humans who
+   * are gone (left, or disconnected past the grace period) open up so the lobby can fill again.
+   */
+  rematch(userId: string): void {
+    this.assertHost(userId);
+    const over = this.status === 'finished' || (this.runner?.isOver ?? false);
+    if (this.status === 'lobby')
+      throw new AppError('ALREADY_IN_LOBBY', 'The room is already in the lobby');
+    if (!over) throw new AppError('GAME_NOT_OVER', 'The game is still running');
+    this.status = 'lobby';
+    this.runner?.close();
+    this.runner = null;
+    this.gameId = null;
+    this.seats = this.seats.map((s) =>
+      s.kind === 'human' && !this.members.has(s.userId!) && !this.graceTimers.has(s.userId!)
+        ? openSeat()
+        : s,
+    );
+    this.resetSeatControl();
   }
 
   /**

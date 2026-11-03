@@ -12,6 +12,7 @@ import {
   maritimeGiveOptions,
   myResponse,
   offerRole,
+  offersAwaitingMe,
   liveDraft,
   toggleRecipient,
   turnKey,
@@ -153,5 +154,15 @@ describe('maritime and discard helpers', () => {
     const lim = discardLimits(r({ brick: 1 }), 2, hand);
     expect(lim).toEqual(r({ brick: 2, lumber: 1, ore: 1 }));
     expect(discardLimits(r({ brick: 2 }), 2, hand)).toEqual(r({ brick: 2 }));
+  });
+});
+
+describe('offersAwaitingMe', () => {
+  it('counts open offers where my answer is still pending', () => {
+    expect(offersAwaitingMe([offer], 2)).toBe(1);
+    expect(offersAwaitingMe([offer], 1)).toBe(0);
+    expect(offersAwaitingMe([offer], 0)).toBe(0);
+    expect(offersAwaitingMe([offer, { ...offer, id: 8 }], 2)).toBe(2);
+    expect(offersAwaitingMe([offer], null)).toBe(0);
   });
 });

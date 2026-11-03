@@ -46,9 +46,14 @@ export interface RoomsRepo {
   byId(id: string): RoomRow | null;
   idsByStatus(status: RoomStatus): string[];
   codeExists(code: string): boolean;
-  delete(id: string): void;
+  /** Delete a room unless a game was played in it (that would cascade away its history). */
+  deleteIfNoGames(id: string): boolean;
   /** Remove lobby rooms that have not been touched since `before`. */
   deleteStaleLobbies(before: number): number;
+  /** Boot: lobbies that already hosted a game (rematch lobbies) become 'finished'. */
+  finishLobbiesWithGames(now: number): number;
+  addKick(roomId: string, userId: string): void;
+  kicksOf(roomId: string): string[];
 }
 
 export function createRoomsRepo(db: Database.Database): RoomsRepo {
@@ -75,10 +80,23 @@ export function createRoomsRepo(db: Database.Database): RoomsRepo {
   const codeExists = db.prepare<[string], { one: number }>(
     'SELECT 1 AS one FROM rooms WHERE code = ?',
   );
-  const del = db.prepare('DELETE FROM rooms WHERE id = ?');
+  const del = db.prepare(
+    'DELETE FROM rooms WHERE id = ? AND NOT EXISTS (SELECT 1 FROM games WHERE games.room_id = rooms.id)',
+  );
   const delStale = db.prepare(
     `DELETE FROM rooms WHERE status = 'lobby' AND updated_at < ?
        AND NOT EXISTS (SELECT 1 FROM games WHERE games.room_id = rooms.id)`,
+  );
+
+  const finishLobbies = db.prepare(
+    `UPDATE rooms SET status = 'finished', updated_at = ? WHERE status = 'lobby'
+       AND EXISTS (SELECT 1 FROM games WHERE games.room_id = rooms.id)`,
+  );
+  const addKick = db.prepare(
+    'INSERT INTO room_kicks (room_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING',
+  );
+  const kicksOf = db.prepare<[string], { user_id: string }>(
+    'SELECT user_id FROM room_kicks WHERE room_id = ?',
   );
 
   const hydrate = (r: RawRoom | undefined): RoomRow | null =>
@@ -121,7 +139,10 @@ export function createRoomsRepo(db: Database.Database): RoomsRepo {
     byId: (id) => hydrate(byId.get(id)),
     idsByStatus: (status) => idsByStatus.all(status).map((r) => r.id),
     codeExists: (code) => codeExists.get(code) !== undefined,
-    delete: (id) => void del.run(id),
+    deleteIfNoGames: (id) => del.run(id).changes > 0,
     deleteStaleLobbies: (before) => delStale.run(before).changes,
+    finishLobbiesWithGames: (now) => finishLobbies.run(now).changes,
+    addKick: (roomId, userId) => void addKick.run(roomId, userId),
+    kicksOf: (roomId) => kicksOf.all(roomId).map((r) => r.user_id),
   };
 }

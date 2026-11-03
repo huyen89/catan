@@ -119,6 +119,11 @@ export function liveDraft(
   return draft;
 }
 
+/** Open offers still waiting for my answer (drives the "Trade" tab badge on small screens). */
+export function offersAwaitingMe(trades: readonly TradeOffer[], me: Seat | null): number {
+  return trades.filter((t) => myResponse(t, me) === 'pending').length;
+}
+
 /** Resources the player can hand to the bank (have at least the ratio). */
 export function maritimeGiveOptions(
   hand: ResourceCounts | undefined,

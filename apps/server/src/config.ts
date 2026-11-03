@@ -25,6 +25,7 @@ const csv = optionalString.transform((s) =>
 );
 
 const envSchema = z.object({
+  NODE_ENV: optionalString,
   PORT: z.coerce.number().int().min(0).max(65535).default(3000),
   HOST: z.string().default('0.0.0.0'),
   DB_PATH: z.string().min(1).default('./data/hexhaven.sqlite'),
@@ -42,10 +43,12 @@ const envSchema = z.object({
   CF_TURN_API_TOKEN: optionalString,
   COTURN_URLS: csv,
   COTURN_SECRET: optionalString,
-  TURN_TTL_SEC: z.coerce.number().int().min(60).max(86400).default(3600),
+  TURN_TTL_SEC: z.coerce.number().int().min(60).max(172800).default(3600),
 });
 
 export interface Config {
+  /** NODE_ENV=production: strict origin/secret checks, TEST_MODE forbidden. */
+  production: boolean;
   port: number;
   host: string;
   dbPath: string;
@@ -77,14 +80,33 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   }
   const e = parsed.data;
   const testMode = e.TEST_MODE === '1';
+  const production = e.NODE_ENV === 'production';
+  if (production && testMode) {
+    throw new Error('Invalid configuration: TEST_MODE must not be enabled in production');
+  }
 
   const sessionSecret = e.SESSION_SECRET ?? (testMode ? TEST_SESSION_SECRET : undefined);
   if (!sessionSecret || sessionSecret.length < 16) {
     throw new Error('Invalid configuration: SESSION_SECRET is required (at least 16 characters)');
   }
-  const publicOrigin = e.PUBLIC_ORIGIN ? new URL(e.PUBLIC_ORIGIN).origin : null;
+  const originUrl = e.PUBLIC_ORIGIN ? new URL(e.PUBLIC_ORIGIN) : null;
+  const publicOrigin = originUrl ? originUrl.origin : null;
+  if (originUrl && originUrl.protocol !== 'https:' && originUrl.protocol !== 'http:') {
+    throw new Error('Invalid configuration: PUBLIC_ORIGIN must be an http(s) origin');
+  }
+  if (production) {
+    if (!publicOrigin) {
+      throw new Error('Invalid configuration: PUBLIC_ORIGIN is required when NODE_ENV=production');
+    }
+    if (!isSecureOrigin(publicOrigin)) {
+      throw new Error(
+        'Invalid configuration: PUBLIC_ORIGIN must be https:// in production (http only for localhost)',
+      );
+    }
+  }
 
   return {
+    production,
     port: e.PORT,
     host: e.HOST,
     dbPath: e.DB_PATH,
@@ -107,4 +129,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       ttlSec: e.TURN_TTL_SEC,
     },
   };
+}
+
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/** https origins, or plain http only on the loopback host. */
+export function isSecureOrigin(origin: string): boolean {
+  const u = new URL(origin);
+  if (u.protocol === 'https:') return true;
+  return u.protocol === 'http:' && LOCAL_HOSTS.has(u.hostname);
 }

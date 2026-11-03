@@ -6,7 +6,6 @@ import {
   clearIceCache,
   coturnCredentials,
   getIceServers,
-  iceConfigFromEnv,
   normalizeCloudflareIceServers,
   type IceConfig,
 } from './ice';
@@ -200,31 +199,6 @@ describe('getIceServers', () => {
   it('clamps absurd TTLs', async () => {
     expect((await getIceServers('u', { provider: 'none', ttlSec: 1 })).ttl).toBe(60);
     expect((await getIceServers('u', { provider: 'none', ttlSec: 1e9 })).ttl).toBe(48 * 3600);
-  });
-});
-
-describe('iceConfigFromEnv', () => {
-  it('parses provider, URLs and TTL', () => {
-    expect(
-      iceConfigFromEnv({
-        TURN_PROVIDER: 'Coturn',
-        COTURN_URLS: ' turn:a:3478 , turns:a:5349?transport=tcp ,',
-        COTURN_SECRET: 'x',
-        TURN_TTL_SEC: '900',
-      }),
-    ).toEqual({
-      provider: 'coturn',
-      cloudflareKeyId: undefined,
-      cloudflareApiToken: undefined,
-      coturnUrls: ['turn:a:3478', 'turns:a:5349?transport=tcp'],
-      coturnSecret: 'x',
-      ttlSec: 900,
-    });
-  });
-
-  it('defaults to none with a 6h TTL', () => {
-    const cfg = iceConfigFromEnv({ TURN_PROVIDER: 'bogus', TURN_TTL_SEC: '' });
-    expect(cfg.provider).toBe('none');
-    expect(cfg.ttlSec).toBe(6 * 3600);
+    expect((await getIceServers('u', { provider: 'none', ttlSec: Number.NaN })).ttl).toBe(60);
   });
 });

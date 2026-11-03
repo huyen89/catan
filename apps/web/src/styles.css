@@ -118,18 +118,38 @@ button {
   cursor: pointer;
   white-space: nowrap;
 }
-button:hover:not(:disabled) {
+button:hover:not(:disabled, [aria-disabled='true']) {
   border-color: var(--muted);
-}
-button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
 }
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-ink);
   font-weight: 600;
+}
+/*
+ * Disabled controls never look highlighted: primary / toggled-on / selected variants fall back to
+ * the neutral surface (a faded accent still reads as "press me"). Declared after the variants and
+ * with matching specificity so it always wins.
+ */
+button:disabled,
+button[aria-disabled='true'],
+button.primary:disabled,
+button.on:disabled,
+button.selected:disabled,
+.phase-banner.act button:disabled {
+  background: var(--panel-2);
+  border-color: var(--line);
+  border-style: dashed;
+  color: var(--muted);
+  box-shadow: none;
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+button.ghost:disabled,
+button.link:disabled {
+  background: transparent;
+  border-color: transparent;
 }
 button.ghost {
   background: transparent;
@@ -968,7 +988,7 @@ label {
   display: flex;
   gap: 6px;
   align-items: center;
-  flex: 0 1 auto;
+  flex: 1 1 0;
   min-width: 90px;
   overflow-x: auto;
 }
@@ -1115,6 +1135,24 @@ label {
   margin-left: auto;
   font-weight: 700;
 }
+.rematch {
+  margin-top: 12px;
+}
+.rematch-wait {
+  margin: 12px 0 0;
+  text-align: center;
+}
+.icon-btn {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  padding: 4px 6px;
+  min-width: 40px;
+  color: var(--muted);
+}
+.icon-btn[aria-pressed='true'] {
+  color: var(--danger);
+}
 .show-results {
   position: fixed;
   right: 360px;
@@ -1160,52 +1198,534 @@ label {
   font-weight: 600;
 }
 
+/* ------------------------------------------------------------ history / stats pages */
+
+a {
+  color: var(--focus);
+}
+.home-links {
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+}
+.home-links a,
+.nav-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 4px;
+}
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.button-link:hover {
+  border-color: var(--muted);
+}
+.page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 12px 16px 32px;
+}
+.page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-bottom: 14px;
+}
+.page-head h1 {
+  margin: 0;
+  flex: 1;
+  font-size: 1.4rem;
+}
+.page-nav {
+  display: flex;
+  gap: 12px;
+}
+.load-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.history-item {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.history-item.won {
+  border-left-color: var(--accent);
+}
+.history-item.active {
+  border-left-color: var(--focus);
+}
+.history-head,
+.history-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+.history-foot {
+  justify-content: space-between;
+}
+.result-tag {
+  font-weight: 700;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.result-tag.won {
+  color: var(--accent);
+}
+.result-tag.active {
+  color: var(--focus);
+}
+.history-players {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 0.9rem;
+}
+.history-players .me {
+  font-weight: 700;
+}
+.history-players .winner {
+  color: var(--accent);
+}
+.crown {
+  margin-right: 3px;
+}
+.stats {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.stat-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+.stat-tiles > div {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+.stat-tiles dt {
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.stat-tiles dd {
+  margin: 2px 0 0;
+  font-size: 1.8rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.panel:has(> .data-table) {
+  overflow-x: auto;
+}
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.data-table th,
+.data-table td {
+  text-align: right;
+  padding: 6px 8px;
+  border-top: 1px solid var(--line);
+  white-space: nowrap;
+}
+.data-table thead th {
+  border-top: none;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+.data-table th[scope='row'],
+.data-table th:first-child {
+  text-align: left;
+}
+.data-table tr.edge-you th[scope='row'] {
+  color: var(--ok);
+}
+.data-table tr.edge-them th[scope='row'] {
+  color: var(--danger);
+}
+
+/* ------------------------------------------------------------ replay viewer */
+
+.replay {
+  height: 100dvh;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'top top'
+    'warn warn'
+    'board side'
+    'controls controls';
+  overflow: hidden;
+}
+.replay-top {
+  grid-area: top;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+}
+.replay-top h1 {
+  margin: 0;
+  font-size: 1.05rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.replay-warn {
+  grid-area: warn;
+  background: #4a3a10;
+  color: var(--accent);
+  padding: 6px 12px;
+  font-size: 0.9rem;
+}
+.replay-board {
+  grid-area: board;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  background: radial-gradient(circle at 50% 45%, var(--sea) 0%, var(--sea-deep) 75%);
+}
+.replay-side {
+  grid-area: side;
+  overflow-y: auto;
+  border-left: 1px solid var(--line);
+  padding: 8px;
+}
+.replay-hand {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  margin-top: 3px;
+  font-size: 0.85rem;
+}
+.replay-hand .zero {
+  opacity: 0.35;
+}
+.replay-dev {
+  margin-top: 2px;
+}
+.replay-controls {
+  grid-area: controls;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: 'caption buttons' 'slider slider';
+  gap: 4px 12px;
+  align-items: center;
+  padding: 6px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+.replay-caption {
+  grid-area: caption;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-height: 3.6em;
+  overflow-y: auto;
+  font-size: 0.9rem;
+}
+.replay-buttons {
+  grid-area: buttons;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.replay-buttons button {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0 8px;
+}
+.replay-buttons select {
+  min-height: 40px;
+}
+.replay-slider {
+  grid-area: slider;
+  width: 100%;
+  min-height: 28px;
+  accent-color: var(--accent);
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+@media (max-width: 760px), (max-height: 560px) {
+  .replay {
+    grid-template-columns: minmax(0, 1fr) 230px;
+  }
+  .replay-controls {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas: 'buttons slider' 'caption caption';
+    padding: 3px 8px;
+  }
+  .replay-caption {
+    max-height: 2.5em;
+    font-size: 0.82rem;
+  }
+  .replay-buttons {
+    gap: 2px;
+  }
+  .replay-buttons button {
+    min-width: 40px;
+    padding: 0 4px;
+  }
+  .replay-top {
+    padding: 0 8px;
+  }
+  .replay-top h1 {
+    font-size: 0.95rem;
+  }
+  .replay-top h1 .small {
+    display: none;
+  }
+  .replay-side .player-stats,
+  .replay-dev {
+    font-size: 0.75rem;
+  }
+}
+
+/* Narrow portrait: board on top, players below, page scrolls. */
+@media (max-width: 700px) and (min-height: 561px) {
+  .replay {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto 55vh auto auto;
+    grid-template-areas: 'top' 'warn' 'board' 'controls' 'side';
+  }
+  .replay-side {
+    border-left: none;
+    overflow: visible;
+  }
+}
+
 /* ------------------------------------------------------------ small screens */
+
+/* Side column as a tab rail + one panel (rendered by SideTabs on short viewports). */
+.game-side.compact {
+  flex-direction: row-reverse;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+.side-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  flex: none;
+  background: var(--panel);
+}
+.side-tab {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+.side-tab.on {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: #3b3420;
+}
+.tab-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 18px;
+}
+/* Full layout: the pane wrappers are layout-transparent and the tab rail is hidden. */
+.game-side:not(.compact) > .side-pane {
+  display: contents;
+}
+.side-tabs[hidden],
+.side-pane[hidden] {
+  display: none;
+}
+.compact > .side-pane {
+  width: 272px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-right: 1px solid var(--line);
+}
+.compact > .side-pane[hidden] {
+  display: none;
+}
+.compact .side-pane .chat ol,
+.compact .side-pane .log ol {
+  max-height: none;
+}
 
 /* Phone in landscape: short viewport. Compact everything, keep the board as big as possible. */
 @media (max-height: 560px) {
   :root {
     font-size: 13px;
   }
+  /* Header and footer span the full width; only the board shares its row with the side tabs. */
   .game {
-    grid-template-columns: minmax(0, 1fr) 270px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'top top'
+      'pause pause'
+      'board side'
+      'bottom bottom';
+  }
+  .game-side.compact {
+    border-left: 1px solid var(--line);
   }
   .game-top {
-    padding: 4px 8px;
+    padding: 3px 6px;
+    gap: 6px;
+  }
+  /* The build buttons must stay on screen: the dev-card strip takes what is left and scrolls. */
+  .devcards {
+    flex: 1 1 0;
+    min-width: 0;
   }
   .phase-banner {
-    padding: 3px 8px;
+    padding: 3px 10px;
+    min-height: 40px;
+    justify-content: flex-start;
+    text-align: left;
+    line-height: 1.15;
+    font-size: 0.92rem;
   }
   .game-bottom {
-    padding: 4px 8px;
-    gap: 8px;
+    padding: 3px 6px;
+    gap: 6px;
+  }
+  .hand {
+    gap: 3px;
   }
   .hand .card {
-    width: 46px;
+    width: 38px;
     padding: 2px;
+    gap: 0;
   }
-  .card-label {
+  .card-label,
+  .cost,
+  .turn-controls .dice,
+  .dev-tools label,
+  .room-chip > .muted {
     display: none;
+  }
+  .card-count {
+    font-size: 1rem;
   }
   .build {
-    padding: 3px 6px;
+    padding: 2px 8px;
+    min-width: 44px;
   }
-  .cost {
-    display: none;
+  .dev {
+    flex-direction: row;
+    gap: 6px;
+    padding: 2px 4px 2px 8px;
   }
-  .turn-controls .dice {
-    display: none;
+  .dev-count {
+    font-size: 0.75rem;
   }
-  .dev-tools label {
-    display: none;
+  .devcards {
+    min-width: 0;
   }
-  .chat ol,
-  .log ol {
-    max-height: 120px;
+  .timer {
+    font-size: 0.95rem;
+    padding: 2px 6px;
+  }
+  .modal {
+    padding: 12px;
   }
   .show-results {
-    right: 290px;
-    bottom: 70px;
+    right: auto;
+    left: 12px;
+    bottom: 64px;
+  }
+}
+
+/* Touch screens (and every short viewport): fingers need >= 40px targets. */
+@media (max-height: 560px), (pointer: coarse) {
+  button,
+  select,
+  input:not([type='checkbox']):not([type='range']) {
+    min-height: 40px;
+  }
+  button.small {
+    min-width: 40px;
+  }
+  .chip {
+    min-width: 40px;
+    justify-content: center;
+  }
+  .res-counter {
+    gap: 3px;
+  }
+  .res-step {
+    grid-template-rows: auto 40px auto 40px;
+    padding: 3px 0;
+  }
+  .res-step .step {
+    width: 100%;
+    min-width: 0;
+    padding: 0;
+  }
+  .resp button {
+    padding: 2px 10px;
+  }
+  .game-side .vb-btn {
+    min-height: 40px;
+  }
+  .dev-tools input[type='checkbox'] {
+    width: 22px;
+    height: 22px;
   }
 }
 

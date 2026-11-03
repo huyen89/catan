@@ -3,16 +3,24 @@ import { create } from 'zustand';
 export type Route =
   | { name: 'home' }
   | { name: 'room'; code: string }
+  | { name: 'history' }
+  | { name: 'stats' }
+  | { name: 'replay'; gameId: string }
   | { name: 'devBoard'; players: number; seed: string; demo: boolean; seat: number }
   | { name: 'notFound' };
 
 const ROOM_RE = /^\/r\/([A-Za-z0-9]{6})\/?$/;
+const REPLAY_RE = /^\/replay\/([A-Za-z0-9_-]{1,64})\/?$/;
 
 /** Pure path → route matcher. */
 export function parseRoute(pathname: string, search = ''): Route {
   if (pathname === '/' || pathname === '') return { name: 'home' };
   const m = ROOM_RE.exec(pathname);
   if (m) return { name: 'room', code: m[1]!.toUpperCase() };
+  if (pathname === '/history' || pathname === '/history/') return { name: 'history' };
+  if (pathname === '/stats' || pathname === '/stats/') return { name: 'stats' };
+  const r = REPLAY_RE.exec(pathname);
+  if (r) return { name: 'replay', gameId: r[1]! };
   if (pathname === '/dev/board' || pathname === '/dev/board/') {
     const q = new URLSearchParams(search);
     const players = Math.min(6, Math.max(3, Number(q.get('players')) || 4));
@@ -29,6 +37,7 @@ export function parseRoute(pathname: string, search = ''): Route {
 }
 
 export const roomPath = (code: string): string => `/r/${code.toUpperCase()}`;
+export const replayPath = (gameId: string): string => `/replay/${encodeURIComponent(gameId)}`;
 
 interface RouterState {
   path: string;

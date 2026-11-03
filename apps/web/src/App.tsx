@@ -9,6 +9,18 @@ import { RoomPage } from './ui/RoomPage';
 
 // The dev fixture pulls in the full engine reducer; keep it out of the main chunk.
 const DevBoard = lazy(() => import('./dev/DevBoard').then((m) => ({ default: m.DevBoard })));
+// Same for the replay viewer; history and stats are rarely visited, so they load on demand too.
+const ReplayPage = lazy(() =>
+  import('./replay/ReplayPage').then((m) => ({ default: m.ReplayPage })),
+);
+const HistoryPage = lazy(() =>
+  import('./ui/history/HistoryPage').then((m) => ({ default: m.HistoryPage })),
+);
+const StatsPage = lazy(() =>
+  import('./ui/history/StatsPage').then((m) => ({ default: m.StatsPage })),
+);
+
+const pageFallback = <div className="center-screen">Loading…</div>;
 
 function Toasts() {
   const toasts = useToasts((s) => s.toasts);
@@ -89,6 +101,24 @@ function Routed() {
       return <HomePage />;
     case 'room':
       return <RoomPage key={route.code} code={route.code} />;
+    case 'history':
+      return (
+        <Suspense fallback={pageFallback}>
+          <HistoryPage />
+        </Suspense>
+      );
+    case 'stats':
+      return (
+        <Suspense fallback={pageFallback}>
+          <StatsPage />
+        </Suspense>
+      );
+    case 'replay':
+      return (
+        <Suspense fallback={pageFallback}>
+          <ReplayPage key={route.gameId} gameId={route.gameId} />
+        </Suspense>
+      );
     case 'notFound':
       return (
         <div className="center-screen">
