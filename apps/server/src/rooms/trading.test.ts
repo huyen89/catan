@@ -38,35 +38,43 @@ const res = (r: Partial<Record<'brick' | 'lumber' | 'wool' | 'grain' | 'ore', nu
 });
 
 /**
- * Scripted bots (one instance per seat, remembering whether it already offered this turn): on
- * its turn a bot offers once, confirms with whoever accepted, otherwise withdraws and ends the
- * turn. Bots always reject offers made to them.
+ * Scripted bots (one instance per seat, remembering how many offers it made this turn): on its
+ * turn a bot opens `offersPerTurn` offers, confirms with whoever accepted, otherwise withdraws
+ * its newest offer, then ends the turn. Bots reject offers made to them but accept counters.
  */
-function tradingBots(): BotFactory {
+function tradingBots(offersPerTurn = 1): BotFactory {
   return () => {
-    let offeredTurn = -1;
+    let turn = -1;
+    let offered = 0;
     return {
       decide(view: PlayerView): Action {
         const me = view.viewer!;
-        const ask = view.trades.find((t) => t.responses[String(me)] === 'pending');
-        if (ask) return { type: 'RESPOND_TRADE', offerId: ask.id, response: 'reject' };
-        const own = view.trades.find((t) => t.from === me);
-        if (own) {
-          const yes = Object.entries(own.responses).find(([, r]) => r === 'accept');
-          return yes
-            ? { type: 'CONFIRM_TRADE', offerId: own.id, with: Number(yes[0]) }
-            : { type: 'CANCEL_TRADE', offerId: own.id };
+        if (turn !== view.turn.number) {
+          turn = view.turn.number;
+          offered = 0;
         }
-        if (offeredTurn !== view.turn.number) {
-          offeredTurn = view.turn.number;
+        const ask = view.trades.find((t) => t.responses[String(me)] === 'pending');
+        if (ask) {
+          const response = ask.counterTo !== null ? 'accept' : 'reject';
+          return { type: 'RESPOND_TRADE', offerId: ask.id, response };
+        }
+        const own = view.trades.filter((t) => t.from === me && t.counterTo === null);
+        for (const t of own) {
+          const yes = Object.entries(t.responses).find(([, r]) => r === 'accept');
+          if (yes) return { type: 'CONFIRM_TRADE', offerId: t.id, with: Number(yes[0]) };
+        }
+        if (offered < offersPerTurn) {
+          offered++;
           return {
             type: 'OFFER_TRADE',
-            give: res({ wool: 1 }),
+            give: res({ wool: offered }),
             want: res({ ore: 1 }),
             to: null,
             counterTo: null,
           };
         }
+        const newest = own.at(-1);
+        if (newest) return { type: 'CANCEL_TRADE', offerId: newest.id };
         return { type: 'END_TURN' };
       },
     };
@@ -75,6 +83,7 @@ function tradingBots(): BotFactory {
 
 /** Host on seat 0, bots on seats 1 and 2; the host ends turn 1 so bot seat 1 opens an offer. */
 async function botOffers(srv: TestServer, turnTimerSec = 0) {
+  // (seat 1 opens its offer as soon as the host ends turn 1)
   const host = await player(srv.url, 'Host');
   await ok(host.socket, 'room:create', { settings: { maxSeats: 3, turnTimerSec } });
   await ok(host.socket, 'room:addBot', { seat: 1, difficulty: 'normal' });
@@ -159,10 +168,61 @@ describe('active bot waits for answers to its offer', () => {
   });
 });
 
+describe('trade hold edge cases', () => {
+  it('a human counter counts as an answer, and the bot answers the counter at once', async () => {
+    const srv = await boot({ tradeResponseMs: 10_000 }, { bots: tradingBots() });
+    const { host, waiting, at } = await botOffers(srv);
+    const offer = waiting.view.trades[0]!;
+    const answered = next(
+      host.socket,
+      'game:state',
+      (p) => p.events.some((e) => e.type === 'tradeResponded' && e.seat === 1),
+      3000,
+    );
+    const moved = next(host.socket, 'game:state', hasEvent('tradeCancelled'), 3000);
+    await ok(host.socket, 'game:action', {
+      expectedVersion: waiting.version,
+      action: {
+        type: 'OFFER_TRADE',
+        give: res({ ore: 1 }),
+        want: res({ wool: 2 }),
+        to: [1],
+        counterTo: offer.id,
+      },
+    });
+    expect((await answered).events.find((e) => e.type === 'tradeResponded')).toMatchObject({
+      response: 'accept',
+    });
+    // The original offer's only open answer was the countering human: no further wait.
+    await moved;
+    expect(Date.now() - at).toBeLessThan(5000);
+  });
+
+  it('waits on each offer once per turn, not again after another offer closes', async () => {
+    const srv = await boot({ tradeResponseMs: 400 }, { bots: tradingBots(2) });
+    const { host } = await botOffers(srv);
+    const back = await next(host.socket, 'game:state', (p) => p.view.turn.current === 2, 5000);
+    const log = srv.server.repos.games
+      .actionsFrom(back.gameId, 0)
+      .filter((a) => a.seat === 1)
+      .map((a) => ({ type: a.action.type, ts: a.ts }));
+    expect(log.map((a) => a.type)).toEqual([
+      'OFFER_TRADE', // A: waited on
+      'OFFER_TRADE', // B: waited on
+      'CANCEL_TRADE', // B withdrawn: A is still unanswered, but its window already ran
+      'CANCEL_TRADE',
+      'END_TURN',
+    ]);
+    expect(log[1]!.ts - log[0]!.ts).toBeGreaterThanOrEqual(350);
+    expect(log[2]!.ts - log[1]!.ts).toBeGreaterThanOrEqual(350);
+    expect(log[3]!.ts - log[2]!.ts).toBeLessThan(300);
+  });
+});
+
 describe('bot instances', () => {
   it('keeps one bot per seat and a fresh one each time a human seat is covered', async () => {
     const fake = createFakeBot();
-    const srv = await boot({ reconnectGraceMs: 50 }, { bots: fake.bots });
+    const srv = await boot({ reconnectGraceMs: 50, botDelayMs: 250 }, { bots: fake.bots });
     const host = await player(srv.url, 'Host');
     const room = await ok(host.socket, 'room:create', { settings: { maxSeats: 3 } });
     const b = await player(srv.url, 'B');
@@ -187,7 +247,7 @@ describe('bot instances', () => {
     for (let i = 0; i < 3; i++) await round(true);
     expect(fake.created).toEqual(['hard']); // seat 2's bot reused for all three turns
 
-    // B leaves: their seat is covered by a new bot; returning and leaving again makes another.
+    // B leaves: their seat is covered by a new bot, reused while it stays covered.
     const covered = () =>
       next(host.socket, 'room:state', (r) => r.seats[1]!.controller === 'bot', 3000);
     let c = covered();
@@ -197,7 +257,20 @@ describe('bot instances', () => {
     await round(false);
     expect(fake.created).toEqual(['hard', 'normal']);
 
+    // Back and gone again during the seat's own turn: the same bot (and its turn memory) resumes.
+    const v = (await ok(host.socket, 'game:sync', {})).version;
+    const back = next(host.socket, 'game:state', (p) => p.version > v && p.view.turn.current === 0);
+    await ok(host.socket, 'game:action', { expectedVersion: v, action: { type: 'END_TURN' } });
+    await ok(b.socket, 'room:join', { code: room.code }); // before the bot's delay runs out
+    c = covered();
+    await ok(b.socket, 'room:leave', {});
+    await c;
+    await back;
+    expect(fake.created).toEqual(['hard', 'normal']);
+
+    // Back for a turn of their own, then gone again: a fresh bot takes over.
     await ok(b.socket, 'room:join', { code: room.code });
+    await round(true);
     c = covered();
     await ok(b.socket, 'room:leave', {});
     await c;

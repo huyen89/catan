@@ -17,7 +17,8 @@ const empty = () => ({ brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 });
  * game ends with the last player to end a turn as the winner. BUY_DEV hands the current player a
  * secret card (so tests can check redaction of hands and `boughtDev` events). Player trades are
  * bookkeeping only (no cards move): OFFER_TRADE opens an offer to every other seat, who then
- * become pending actors until they RESPOND_TRADE; CONFIRM/CANCEL close it, END_TURN clears all.
+ * become pending actors until they RESPOND_TRADE (or counter with OFFER_TRADE + counterTo, which
+ * asks the original offerer only); CONFIRM/CANCEL close it, END_TURN clears all.
  */
 export function createFakeEngine(opts: { turnsToWin?: number } = {}): EngineApi {
   const turnsToWin = opts.turnsToWin ?? 1000;
@@ -85,6 +86,24 @@ export function createFakeEngine(opts: { turnsToWin?: number } = {}): EngineApi 
         events.push({ type: 'tradeResponded', offerId: t.id, seat, response: action.response });
         return { ok: true, state: next, events };
       }
+      if (action.type === 'OFFER_TRADE' && action.counterTo !== null) {
+        // A counter goes back to the original offerer, from a seat still asked to answer it.
+        const orig = next.trades.find((o) => o.id === action.counterTo);
+        if (orig?.responses[String(seat)] !== 'pending' || orig.counterTo !== null)
+          return fail('INVALID_ACTION', 'nothing to counter');
+        const counter = {
+          id: next.nextTradeId++,
+          from: seat,
+          give: action.give,
+          want: action.want,
+          to: [orig.from],
+          counterTo: orig.id,
+          responses: { [String(orig.from)]: 'pending' as const },
+        };
+        next.trades.push(counter);
+        events.push({ type: 'tradeOffered', offer: counter });
+        return { ok: true, state: next, events };
+      }
       if (seat !== state.turn.current) return fail('NOT_YOUR_TURN', `seat ${seat} cannot act`);
       switch (action.type) {
         case 'OFFER_TRADE': {
@@ -121,6 +140,8 @@ export function createFakeEngine(opts: { turnsToWin?: number } = {}): EngineApi 
           break;
         }
         case 'CANCEL_TRADE': {
+          if (!next.trades.some((o) => o.id === action.offerId && o.from === seat))
+            return fail('INVALID_ACTION', 'no such offer of yours');
           next.trades = next.trades.filter((o) => o.id !== action.offerId);
           events.push({ type: 'tradeCancelled', offerId: action.offerId });
           break;

@@ -90,10 +90,19 @@ export class GameRunner {
   private lastDeadline: number | null = null;
   private pausedFlag = false;
   private closed = false;
-  /** One long-lived bot per bot-driven seat; replaced whenever the seat changes hands. */
-  private readonly bots = new Map<Seat, { key: string; bot: SeatBot }>();
-  /** The active bot waiting for answers to its open offers (`key` = turn, seat, offer ids). */
-  private hold: { key: string; handle: NodeJS.Timeout | null; expired: boolean } | null = null;
+  /**
+   * One long-lived bot per bot-driven seat; replaced whenever the seat changes hands. `reclaimedTurn`
+   * marks a bot whose seat its human took back: covering the seat again in that same turn reuses
+   * it (keeping its per-turn trade memory), a later turn gets a fresh one.
+   */
+  private readonly bots = new Map<Seat, { key: string; bot: SeatBot; reclaimedTurn?: number }>();
+  /**
+   * Response windows of the active bot's offers this turn: offer id → wait deadline. Kept for the
+   * whole turn (dev-card detours, other offers closing) so an offer is only ever waited on once.
+   */
+  private waits: { turn: number; seat: Seat; until: Map<number, number> } | null = null;
+  /** Wakes the scheduler when the current hold ends. */
+  private holdTimer: { handle: NodeJS.Timeout; at: number } | null = null;
   /**
    * Redacted views of the current version, one per viewer seat (null = spectator). A broadcast,
    * catch-up syncs and bot turns at the same version all share these instead of re-redacting.
@@ -333,7 +342,8 @@ export class GameRunner {
   }
 
   private onReclaimed(seat: Seat): void {
-    this.bots.delete(seat);
+    const bot = this.bots.get(seat);
+    if (bot) bot.reclaimedTurn = this.current.turn.number;
     this.timeouts.delete(seat);
     this.botAttempts.delete(seat);
     const t = this.botTimers.get(seat);
@@ -383,60 +393,89 @@ export class GameRunner {
     const s = this.host.seats()[seat]!;
     const key = `${s.kind}:${s.userId ?? ''}:${s.botDifficulty}`;
     let e = this.bots.get(seat);
-    if (!e || e.key !== key) {
+    const stale =
+      !e ||
+      e.key !== key ||
+      (e.reclaimedTurn !== undefined && e.reclaimedTurn !== this.current.turn.number);
+    if (stale) {
       e = { key, bot: this.opts.bots({ difficulty: s.botDifficulty, random: this.random }) };
       this.bots.set(seat, e);
     }
-    return e.bot;
+    e!.reclaimedTurn = undefined;
+    return e!.bot;
   }
 
   /**
-   * True while the active, bot-driven seat has open offers of its own with unanswered seats:
-   * it is not scheduled then, so responders (bots at their usual pace, humans) get a say. The
-   * wait ends when every answer is in or after `tradeResponseMs` (capped by the turn deadline),
-   * once per set of offers.
+   * True while the active, bot-driven seat should wait for answers to its own open offers: it is
+   * not scheduled then, so responders (bots at their usual pace, humans) get a say. A responder
+   * who countered has answered. Each offer gets one window of `tradeResponseMs` (capped by the
+   * turn deadline) per turn; the wait ends early once every answer is in, and never applies while
+   * the bot itself has a counter-offer to answer.
    */
   private holding(): boolean {
     const ms = this.opts.tradeResponseMs ?? 0;
     const s = this.current;
     const seat = s.turn.current;
-    const waiting =
-      ms > 0 && s.phase.kind === 'main' && this.isBotControlled(seat) && awaitingResponses(s, seat);
-    if (!waiting) {
+    if (
+      ms <= 0 ||
+      s.phase.kind !== 'main' ||
+      !this.isBotControlled(seat) ||
+      !awaitingResponses(s, seat)
+    ) {
       this.clearHold();
       return false;
     }
-    const ids = s.trades.filter((t) => t.from === seat && t.counterTo === null).map((t) => t.id);
-    const key = `${s.turn.number}:${seat}:${ids.join(',')}`;
-    if (this.hold?.key !== key) {
-      this.clearHold();
-      this.hold = { key, handle: null, expired: false };
+    if (this.waits?.turn !== s.turn.number || this.waits.seat !== seat) {
+      this.waits = { turn: s.turn.number, seat, until: new Map() };
     }
-    const hold = this.hold;
-    if (hold.expired) return false;
-    if (!hold.handle) {
-      const t = this.timer;
-      const left = t && !t.expired && t.remaining === null ? t.deadline - this.now() : Infinity;
-      hold.handle = setTimeout(
-        () => {
-          this.enqueue(() => {
-            if (this.hold !== hold) return;
-            hold.handle = null;
-            hold.expired = true;
-            this.scheduleBots();
-          }).catch((e: unknown) =>
-            this.opts.log.error({ err: e, gameId: this.gameId }, 'trade hold crashed'),
-          );
-        },
-        Math.max(0, Math.min(ms, left)),
-      );
+    const me = String(seat);
+    const askedToAnswer = s.trades.some(
+      (t) => t.counterTo !== null && t.responses[me] === 'pending',
+    );
+    const unanswered = askedToAnswer
+      ? []
+      : s.trades.filter(
+          (t) =>
+            t.from === seat &&
+            t.counterTo === null &&
+            Object.entries(t.responses).some(
+              ([r, v]) =>
+                v === 'pending' &&
+                !s.trades.some((c) => c.counterTo === t.id && String(c.from) === r),
+            ),
+        );
+    const now = this.now();
+    const t = this.timer;
+    const left = !t ? Infinity : t.expired ? 0 : (t.remaining ?? t.deadline - now);
+    let until = -Infinity;
+    for (const o of unanswered) {
+      let d = this.waits.until.get(o.id);
+      if (d === undefined) this.waits.until.set(o.id, (d = now + Math.max(0, Math.min(ms, left))));
+      until = Math.max(until, d);
+    }
+    if (until <= now) {
+      this.clearHold();
+      return false;
+    }
+    if (this.holdTimer?.at !== until) {
+      this.clearHold();
+      const handle = setTimeout(() => {
+        this.enqueue(() => {
+          if (this.holdTimer?.handle !== handle) return;
+          this.holdTimer = null;
+          this.scheduleBots();
+        }).catch((e: unknown) =>
+          this.opts.log.error({ err: e, gameId: this.gameId }, 'trade hold crashed'),
+        );
+      }, until - now);
+      this.holdTimer = { handle, at: until };
     }
     return true;
   }
 
   private clearHold(): void {
-    if (this.hold?.handle) clearTimeout(this.hold.handle);
-    this.hold = null;
+    if (this.holdTimer) clearTimeout(this.holdTimer.handle);
+    this.holdTimer = null;
   }
 
   private botDelay(): number {
