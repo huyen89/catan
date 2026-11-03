@@ -5,12 +5,16 @@ import { canTradeMaritime } from './rules/maritime';
 import {
   buildableRoadEdges,
   buildableSettlementVertices,
+  buildableShipEdges,
   maritimeRatios,
   ownSettlements,
   setupRoadEdges,
   setupSettlementVertices,
+  setupShipEdges,
+  shipMoveTargets,
 } from './rules/placement';
 import { robberTargets } from './rules/robber';
+import { pirateTargets } from './rules/sea';
 import { confirmablePartners, MAX_OPEN_OFFERS, openOffersBy } from './rules/trade';
 import {
   RESOURCES,
@@ -21,6 +25,7 @@ import {
   type LegalSummary,
   type Seat,
 } from './types';
+import { variantFor } from './variants';
 
 /**
  * graphFor re-derives its cache key from every hex on each call; toPlayerView calls getLegal once
@@ -60,7 +65,9 @@ function addBuildOptions(out: LegalSummary, state: GameState, graph: BoardGraph,
   out.settlementVertices =
     p.settlementsLeft > 0 ? buildableSettlementVertices(state, graph, seat) : [];
   out.cityVertices = p.citiesLeft > 0 ? ownSettlements(state, seat) : [];
+  out.shipEdges = p.shipsLeft > 0 ? buildableShipEdges(state, graph, seat) : [];
   if (out.canAfford.road && out.roadEdges.length > 0) out.actions.push('BUILD_ROAD');
+  if (out.canAfford.ship && out.shipEdges.length > 0) out.actions.push('BUILD_SHIP');
   if (out.canAfford.settlement && out.settlementVertices.length > 0) {
     out.actions.push('BUILD_SETTLEMENT');
   }
@@ -69,9 +76,9 @@ function addBuildOptions(out: LegalSummary, state: GameState, graph: BoardGraph,
 }
 
 /**
- * Dev cards that would succeed for some payload. `roadEdges` are the seat's buildable road edges
- * when the caller already has them (so the board is not scanned twice); the road-building check
- * is the handler's own roadBuildingCount, so the two cannot drift apart.
+ * Dev cards that would succeed for some payload. `roadEdges`/`shipEdges` are the seat's
+ * buildable edges when the caller already has them (so the board is not scanned twice); the
+ * road-building check is the handler's own roadBuildingCount, so the two cannot drift apart.
  */
 function addDevOptions(
   out: LegalSummary,
@@ -79,6 +86,7 @@ function addDevOptions(
   graph: BoardGraph,
   seat: Seat,
   roadEdges?: () => readonly EdgeId[],
+  shipEdges?: () => readonly EdgeId[],
 ): void {
   const playable = playableDevCards(state, seat);
   if (playable.length === 0) return;
@@ -86,7 +94,7 @@ function addDevOptions(
   const cards: DevCardType[] = playable.filter(
     (c) =>
       (c !== 'yearOfPlenty' || bankHasTwo) &&
-      (c !== 'roadBuilding' || roadBuildingCount(state, graph, seat, roadEdges) > 0),
+      (c !== 'roadBuilding' || roadBuildingCount(state, graph, seat, roadEdges, shipEdges) > 0),
   );
   out.playableDev = cards;
   const ACTION: Record<string, ActionType> = {
@@ -132,7 +140,8 @@ export function getLegal(state: GameState, seat: Seat): LegalSummary {
     settlement: hasResources(p.resources, COSTS.settlement),
     city: hasResources(p.resources, COSTS.city),
     devCard: hasResources(p.resources, COSTS.devCard),
-    ship: hasResources(p.resources, COSTS.ship),
+    // Gated by the variant: without ships, a ship is never affordable.
+    ship: variantFor(state.config).ships > 0 && hasResources(p.resources, COSTS.ship),
   };
   const ph = state.phase;
   const isCurrent = seat === state.turn.current;
@@ -146,6 +155,8 @@ export function getLegal(state: GameState, seat: Seat): LegalSummary {
       } else {
         out.roadEdges = p.roadsLeft > 0 ? setupRoadEdges(state, graph, ph.lastSettlement) : [];
         if (out.roadEdges.length > 0) out.actions.push('PLACE_ROAD');
+        out.shipEdges = p.shipsLeft > 0 ? setupShipEdges(state, graph, ph.lastSettlement) : [];
+        if (out.shipEdges.length > 0) out.actions.push('PLACE_SHIP');
       }
       break;
     }
@@ -159,13 +170,15 @@ export function getLegal(state: GameState, seat: Seat): LegalSummary {
       if (out.discardCount > 0) out.actions.push('DISCARD');
       break;
     case 'goldChoice':
-      // CHOOSE_GOLD is listed by ENG together with its handler (stubbed for now).
       out.goldCount = ph.pending[String(seat)] ?? 0;
+      if (out.goldCount > 0) out.actions.push('CHOOSE_GOLD');
       break;
     case 'moveRobber':
       if (!isCurrent) break;
       out.robberHexes = robberTargets(state);
       if (out.robberHexes.length > 0) out.actions.push('MOVE_ROBBER');
+      out.pirateHexes = ph.allowPirate ? pirateTargets(state) : [];
+      if (out.pirateHexes.length > 0) out.actions.push('MOVE_PIRATE');
       break;
     case 'steal':
       if (!isCurrent) break;
@@ -176,11 +189,24 @@ export function getLegal(state: GameState, seat: Seat): LegalSummary {
       if (!isCurrent) break;
       out.roadEdges = p.roadsLeft > 0 ? buildableRoadEdges(state, graph, seat) : [];
       if (out.roadEdges.length > 0) out.actions.push('BUILD_ROAD');
+      out.shipEdges = p.shipsLeft > 0 ? buildableShipEdges(state, graph, seat) : [];
+      if (out.shipEdges.length > 0) out.actions.push('BUILD_SHIP');
       break;
     case 'main':
       if (isCurrent) {
         addBuildOptions(out, state, graph, seat);
-        addDevOptions(out, state, graph, seat, () => out.roadEdges);
+        addDevOptions(
+          out,
+          state,
+          graph,
+          seat,
+          () => out.roadEdges,
+          () => out.shipEdges,
+        );
+        if (!state.turn.shipMoved) {
+          out.shipMoves = shipMoveTargets(state, graph, seat, state.turn.newShips);
+          if (Object.keys(out.shipMoves).length > 0) out.actions.push('MOVE_SHIP');
+        }
         if (canTradeMaritime(state, seat, out.maritimeRatios)) out.actions.push('MARITIME_TRADE');
       }
       addTradeOptions(out, state, seat);

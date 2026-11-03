@@ -10,6 +10,7 @@ import { nextInt } from '../rng';
 import { RESOURCES, type GameState, type HexId, type Seat } from '../types';
 import type { BoardGraph } from '../hex/topology';
 import { counts, expectSeat, withVictoryCheck } from './flow';
+import { pirateAllowed } from './sea';
 
 /** Hexes the robber may move to (any land hex except its current one). */
 export function robberTargets(state: GameState): HexId[] {
@@ -36,7 +37,7 @@ export function stealCandidates(
 }
 
 /** Move one random card from victim to thief. */
-function stealRandom(ctx: Ctx, thief: Seat, victim: Seat): void {
+export function stealRandom(ctx: Ctx, thief: Seat, victim: Seat): void {
   const s = ctx.state;
   const hand = s.players[victim]!.resources;
   let pick = nextInt(s.rng, 0, totalResources(hand) - 1);
@@ -70,7 +71,7 @@ const discard: Handler<'DISCARD'> = (ctx, a) => {
   delete ph.pending[String(ctx.seat)];
   ctx.events.push({ type: 'discarded', seat: ctx.seat, resources: cards });
   if (Object.keys(ph.pending).length === 0) {
-    s.phase = { kind: 'moveRobber', returnTo: 'main', allowPirate: false };
+    s.phase = { kind: 'moveRobber', returnTo: 'main', allowPirate: pirateAllowed(s) };
   }
 };
 

@@ -1,6 +1,7 @@
 /** Whole-state invariants shared by the property and fuzz tests. */
 import { graphFor } from '../hex/topology';
 import { longestTrail } from '../rules/awards';
+import { isLandVertex, islandOfVertex, isRoadEdge, isShipEdge } from '../rules/placement';
 import { totalVP } from '../rules/victory';
 import { RESOURCES, type GameState } from '../types';
 import { variantFor } from '../variants';
@@ -73,6 +74,61 @@ export function violations(s: GameState): string[] {
     check(isCount(p.playedKnights), `seat ${p.seat} knights`);
   }
 
+  // Open Seas: pieces only where they may stand, ships conserved, bonuses earned, pirate at sea.
+  const ships = new Array<number>(n).fill(0);
+  for (const [e, owner] of Object.entries(s.ships)) {
+    check(isSeat(owner), `ship owner ${owner}`);
+    if (isSeat(owner)) ships[owner]!++;
+    check(Object.hasOwn(graph.edgeVertices, e) && isShipEdge(graph, e), `ship off the sea ${e}`);
+    check(!Object.hasOwn(s.roads, e), `road and ship on ${e}`);
+  }
+  for (const e of Object.keys(s.roads)) {
+    check(!Object.hasOwn(graph.edgeVertices, e) || isRoadEdge(graph, e), `road at sea ${e}`);
+  }
+  for (const v of Object.keys(s.buildings)) {
+    check(!Object.hasOwn(graph.vertexHexes, v) || isLandVertex(graph, v), `building at sea ${v}`);
+  }
+  for (const p of s.players) {
+    check(isCount(p.shipsLeft), `seat ${p.seat} ships < 0`);
+    check(p.shipsLeft + ships[p.seat]! === variant.ships, `seat ${p.seat} ships`);
+    let islands = 0;
+    for (const [island, seats] of Object.entries(s.islandBonus)) {
+      if (!seats.includes(p.seat)) continue;
+      islands++;
+      check(!s.board.homeIslands.includes(Number(island)), `bonus for home island ${island}`);
+      check(
+        Object.entries(s.buildings).some(
+          ([v, b]) => b.owner === p.seat && islandOfVertex(graph, v) === Number(island),
+        ),
+        `seat ${p.seat} island ${island} bonus without a building there`,
+      );
+    }
+    check(p.bonusVP === islands * s.board.islandBonusVP, `seat ${p.seat} bonusVP ${p.bonusVP}`);
+  }
+  for (const seats of Object.values(s.islandBonus)) {
+    check(new Set(seats).size === seats.length, 'island bonus twice');
+  }
+  // Every island with any player's building off home was rewarded to that player.
+  if (s.board.islandBonusVP > 0) {
+    for (const [v, b] of Object.entries(s.buildings)) {
+      const island = islandOfVertex(graph, v);
+      if (island === null || s.board.homeIslands.includes(island)) continue;
+      check(
+        s.islandBonus[String(island)]?.includes(b.owner) === true,
+        `seat ${b.owner} missing bonus for island ${island}`,
+      );
+    }
+  }
+  check(
+    (s.pirate === null) === (variant.layout.pirateStart === undefined),
+    `pirate ${s.pirate} on a board ${variant.layout.pirateStart ? 'with' : 'without'} one`,
+  );
+  if (s.pirate !== null) {
+    check(s.board.hexes.find((h) => h.id === s.pirate)?.terrain === 'sea', 'pirate on land');
+  }
+  check(s.board.hexes.find((h) => h.id === s.robber)?.terrain !== 'sea', 'robber at sea');
+  for (const e of s.turn.newShips) check(Object.hasOwn(s.ships, e), `new ship ${e} not on board`);
+
   // Cached longest-road lengths are fresh; award holders deserve their award.
   for (const p of s.players) {
     const fresh = longestTrail(s, graph, p.seat);
@@ -130,6 +186,25 @@ export function violations(s: GameState): string[] {
     case 'steal':
       check(ph.candidates.length > 1, 'steal phase with < 2 candidates');
       check(!ph.candidates.includes(s.turn.current), 'can steal from self');
+      break;
+    case 'goldChoice': {
+      check(Object.keys(ph.pending).length > 0, 'empty gold choice phase');
+      let owed = 0;
+      for (const [seat, k] of Object.entries(ph.pending)) {
+        check(isSeat(Number(seat)) && isCount(k) && k > 0, `gold pending ${seat}=${k}`);
+        owed += k;
+      }
+      // The shortage cap guarantees every pending choice can be paid.
+      const bankTotal = RESOURCES.reduce((t, r) => t + s.bank[r], 0);
+      check(owed <= bankTotal, `gold owed ${owed} > bank ${bankTotal}`);
+      check(
+        ph.resume.kind === 'main' || (ph.resume.kind === 'setup' && ph.resume.step === 'road'),
+        `gold resumes ${ph.resume.kind}`,
+      );
+      break;
+    }
+    case 'moveRobber':
+      check(ph.allowPirate === (s.pirate !== null), 'allowPirate without a pirate (or vice versa)');
       break;
     case 'roadBuilding':
       check(ph.remaining === 1 || ph.remaining === 2, `road building remaining ${ph.remaining}`);

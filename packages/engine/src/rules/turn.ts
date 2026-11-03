@@ -3,7 +3,12 @@ import type { BoardGraph } from '../hex/topology';
 import { COSTS, hasResources } from '../resources';
 import type { GameState, Seat } from '../types';
 import { expectPhase, expectSeat, startTurn, withVictoryCheck } from './flow';
-import { buildableRoadEdges, buildableSettlementVertices, ownSettlements } from './placement';
+import {
+  buildableRoadEdges,
+  buildableSettlementVertices,
+  buildableShipEdges,
+  ownSettlements,
+} from './placement';
 
 /** Could `seat` build or buy anything right now (resources, pieces, a legal spot)? */
 export function canBuildAnything(state: GameState, graph: BoardGraph, seat: Seat): boolean {
@@ -13,6 +18,7 @@ export function canBuildAnything(state: GameState, graph: BoardGraph, seat: Seat
     (afford('devCard') && state.devDeck.length > 0) ||
     (afford('city') && p.citiesLeft > 0 && ownSettlements(state, seat).length > 0) ||
     (afford('road') && p.roadsLeft > 0 && buildableRoadEdges(state, graph, seat).length > 0) ||
+    (afford('ship') && p.shipsLeft > 0 && buildableShipEdges(state, graph, seat).length > 0) ||
     (afford('settlement') &&
       p.settlementsLeft > 0 &&
       buildableSettlementVertices(state, graph, seat).length > 0)

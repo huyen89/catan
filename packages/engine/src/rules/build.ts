@@ -1,7 +1,9 @@
 import { err, type Handler, type HandlerMap } from '../context';
 import { seatsCutAt, updateLongestRoad } from './awards';
 import { builderSeat, expectSeat, pay, withVictoryCheck } from './flow';
-import { buildableRoadEdges, canBuildRoadAt, canBuildSettlementAt } from './placement';
+import { continueRoadBuilding } from './devcards';
+import { canBuildRoadAt, canBuildSettlementAt } from './placement';
+import { awardIslandBonus } from './sea';
 
 const wrongPhase = () => err('WRONG_PHASE', 'You cannot build now');
 
@@ -28,12 +30,7 @@ const buildRoad: Handler<'BUILD_ROAD'> = (ctx, a) => {
   ctx.events.push({ type: 'built', seat: ctx.seat, kind: 'road', at: a.edge });
   updateLongestRoad(ctx, [ctx.seat]);
 
-  if (ph.kind === 'roadBuilding') {
-    const remaining = ph.remaining - 1;
-    const more =
-      remaining > 0 && p.roadsLeft > 0 && buildableRoadEdges(s, ctx.graph, ctx.seat).length > 0;
-    s.phase = more ? { kind: 'roadBuilding', remaining } : { kind: 'main' };
-  }
+  if (ph.kind === 'roadBuilding') continueRoadBuilding(ctx, ph.remaining - 1);
 };
 
 const buildSettlement: Handler<'BUILD_SETTLEMENT'> = (ctx, a) => {
@@ -45,13 +42,17 @@ const buildSettlement: Handler<'BUILD_SETTLEMENT'> = (ctx, a) => {
   const p = s.players[ctx.seat]!;
   if (p.settlementsLeft <= 0) return err('NO_PIECES_LEFT', 'No settlements left');
   if (!canBuildSettlementAt(s, ctx.graph, ctx.seat, a.vertex)) {
-    return err('ILLEGAL_LOCATION', 'Settlement must touch your road and respect the distance rule');
+    return err(
+      'ILLEGAL_LOCATION',
+      'Settlement must be on land, touch your road or ship and respect the distance rule',
+    );
   }
   const poor = pay(ctx, ctx.seat, 'settlement');
   if (poor) return poor;
   s.buildings[a.vertex] = { owner: ctx.seat, kind: 'settlement' };
   p.settlementsLeft--;
   ctx.events.push({ type: 'built', seat: ctx.seat, kind: 'settlement', at: a.vertex });
+  awardIslandBonus(ctx, ctx.seat, a.vertex);
   // A new settlement can cut an opponent's road.
   updateLongestRoad(ctx, seatsCutAt(ctx, a.vertex, ctx.seat));
 };

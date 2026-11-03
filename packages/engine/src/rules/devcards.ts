@@ -12,7 +12,8 @@ import {
 } from '../types';
 import { updateLargestArmy } from './awards';
 import { expectSeat, isResource, withVictoryCheck } from './flow';
-import { buildableRoadEdges } from './placement';
+import { buildableRoadEdges, buildableShipEdges } from './placement';
+import { pirateAllowed } from './sea';
 
 type PlayableDev = Exclude<DevCardType, 'victoryPoint'>;
 
@@ -63,27 +64,41 @@ const playKnight: Handler<'PLAY_KNIGHT'> = (ctx) => {
   if (bad) return bad;
   s.players[ctx.seat]!.playedKnights++;
   updateLargestArmy(ctx, ctx.seat);
-  s.phase = { kind: 'moveRobber', returnTo, allowPirate: false };
+  s.phase = { kind: 'moveRobber', returnTo, allowPirate: pirateAllowed(s) };
 };
 
-/** Free roads available right now: min(2, roads left), or 0 if no edge is buildable. */
+/**
+ * Free pieces available right now: min(2, pieces left of the kinds that have a buildable edge),
+ * or 0 if none. With ships (Open Seas) each free piece may be a road or a ship; a road never
+ * opens a ship edge or vice versa (they join only at a building), so the count is exact.
+ */
 export function roadBuildingCount(
   state: GameState,
   graph: BoardGraph,
   seat: Seat,
   /** The seat's buildable road edges, when the caller has already computed them. */
   roadEdges: () => readonly EdgeId[] = () => buildableRoadEdges(state, graph, seat),
+  /** The seat's buildable ship edges, when the caller has already computed them. */
+  shipEdges: () => readonly EdgeId[] = () => buildableShipEdges(state, graph, seat),
 ): number {
-  const n = Math.min(2, state.players[seat]!.roadsLeft);
-  return n > 0 && roadEdges().length > 0 ? n : 0;
+  const p = state.players[seat]!;
+  const roads = p.roadsLeft > 0 && roadEdges().length > 0 ? p.roadsLeft : 0;
+  const ships = p.shipsLeft > 0 && shipEdges().length > 0 ? p.shipsLeft : 0;
+  return Math.min(2, roads + ships);
+}
+
+/** After a free road or ship during road building: continue while a piece can still be placed. */
+export function continueRoadBuilding(ctx: Ctx, remaining: number): void {
+  const more = remaining > 0 && roadBuildingCount(ctx.state, ctx.graph, ctx.seat) > 0;
+  ctx.state.phase = more ? { kind: 'roadBuilding', remaining } : { kind: 'main' };
 }
 
 const playRoadBuilding: Handler<'PLAY_ROAD_BUILDING'> = (ctx) => {
   const bad = playCard(ctx, 'roadBuilding');
   if (bad) return bad;
-  // Refuse rather than waste the card when no free road could be placed.
+  // Refuse rather than waste the card when no free road or ship could be placed.
   const remaining = roadBuildingCount(ctx.state, ctx.graph, ctx.seat);
-  if (remaining === 0) return err('DEV_CARD_NOT_PLAYABLE', 'No road can be built');
+  if (remaining === 0) return err('DEV_CARD_NOT_PLAYABLE', 'No road or ship can be built');
   ctx.state.phase = { kind: 'roadBuilding', remaining };
 };
 
