@@ -37,6 +37,7 @@ const envSchema = z.object({
   TEST_MODE: optionalString,
   RECONNECT_GRACE_MS: z.coerce.number().int().min(0).optional(),
   BOT_DELAY_MS: z.coerce.number().int().min(0).optional(),
+  TRADE_RESPONSE_SEC: z.coerce.number().min(0).max(300).optional(),
   WEB_DIST: optionalString,
   TURN_PROVIDER: z.enum(['cloudflare', 'coturn', 'none']).default('none'),
   CF_TURN_KEY_ID: optionalString,
@@ -64,6 +65,8 @@ export interface Config {
   testMode: boolean;
   reconnectGraceMs: number;
   botDelayMs: number;
+  /** How long a bot's open offer waits for answers before the bot moves on; 0 = no wait. */
+  tradeResponseMs: number;
   webDist: string;
   ice: IceConfig;
 }
@@ -119,6 +122,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     testMode,
     reconnectGraceMs: e.RECONNECT_GRACE_MS ?? (testMode ? 1500 : 30000),
     botDelayMs: e.BOT_DELAY_MS ?? (testMode ? 0 : 900),
+    tradeResponseMs: Math.round((e.TRADE_RESPONSE_SEC ?? (testMode ? 0 : 20)) * 1000),
     webDist: e.WEB_DIST ? resolve(e.WEB_DIST) : DEFAULT_WEB_DIST,
     ice: {
       provider: e.TURN_PROVIDER,

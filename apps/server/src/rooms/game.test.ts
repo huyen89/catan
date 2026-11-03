@@ -126,7 +126,7 @@ describe('game runner', () => {
 
   it('drives bot seats and persists every action in order', async () => {
     const bot = createFakeBot();
-    const srv = await boot({}, { decide: bot.decide });
+    const srv = await boot({}, { bots: bot.bots });
     const { host, b, room } = await startGame(srv);
     await ok(host.socket, 'game:action', { expectedVersion: 0, action: { type: 'END_TURN' } });
     const back = next(host.socket, 'game:state', (p) => p.view.turn.current === 0);
@@ -147,7 +147,7 @@ describe('game runner', () => {
 
   it('falls back to a safe move when the bot throws', async () => {
     const bot = createFakeBot({ throwFor: [2] });
-    const srv = await boot({}, { decide: bot.decide });
+    const srv = await boot({}, { bots: bot.bots });
     const { host, b } = await startGame(srv);
     await ok(host.socket, 'game:action', { expectedVersion: 0, action: { type: 'END_TURN' } });
     const back = next(host.socket, 'game:state', (p) => p.view.turn.current === 0);
@@ -157,7 +157,7 @@ describe('game runner', () => {
 
   it('hands a disconnected seat to the bot after grace and back on reconnect', async () => {
     const bot = createFakeBot();
-    const srv = await boot({ reconnectGraceMs: 150 }, { decide: bot.decide });
+    const srv = await boot({ reconnectGraceMs: 150 }, { bots: bot.bots });
     const { host, b, room } = await startGame(srv);
     await ok(host.socket, 'game:action', { expectedVersion: 0, action: { type: 'END_TURN' } });
 
@@ -195,7 +195,7 @@ describe('game runner', () => {
 
   it('pauses when no human is connected and resumes on reconnect', async () => {
     const bot = createFakeBot();
-    const srv = await boot({ reconnectGraceMs: 50 }, { decide: bot.decide });
+    const srv = await boot({ reconnectGraceMs: 50 }, { bots: bot.bots });
     const { host, room } = await startGame(srv, { withB: false });
     host.socket.disconnect();
     await sleep(250);

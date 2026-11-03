@@ -37,7 +37,7 @@ export async function startServer(
   const config = testConfig(overrides);
   const server = await buildServer(config, {
     engine: createFakeEngine(),
-    decide: createFakeBot().decide,
+    bots: createFakeBot().bots,
     logger: false,
     ...deps,
   });
