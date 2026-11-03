@@ -83,6 +83,21 @@ describe('soundsFor', () => {
     expect(soundsFor(snap(5), next(4, rolled))).toEqual([]);
     expect(soundsFor(snap(0, view(), 'old'), next(1, rolled))).toEqual([]);
   });
+
+  it('chimes on the first state of a new game (start / rematch) when I place first', () => {
+    const setup = (pending: number[]): View =>
+      view({
+        phase: { kind: 'setup', index: 0, step: 'settlement', lastSettlement: null },
+        pendingActors: pending,
+      });
+    // After a rematch the store was reset (prev null) or still holds the finished game.
+    expect(soundsFor(null, next(0, [], setup([1]), 'g2'))).toEqual(['yourTurn']);
+    expect(soundsFor(snap(90, view(), 'g1'), next(0, [], setup([1]), 'g2'))).toEqual(['yourTurn']);
+    // Someone else places first: silence.
+    expect(soundsFor(null, next(0, [], setup([0]), 'g2'))).toEqual([]);
+    // Joining a game already under way is history, even when it is my move.
+    expect(soundsFor(null, next(12, [], setup([1]), 'g2'))).toEqual([]);
+  });
 });
 
 describe('mustAct', () => {

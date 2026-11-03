@@ -118,7 +118,7 @@ button {
   cursor: pointer;
   white-space: nowrap;
 }
-button:hover:not(:disabled) {
+button:hover:not(:disabled, [aria-disabled='true']) {
   border-color: var(--muted);
 }
 button.primary {
@@ -133,6 +133,7 @@ button.primary {
  * with matching specificity so it always wins.
  */
 button:disabled,
+button[aria-disabled='true'],
 button.primary:disabled,
 button.on:disabled,
 button.selected:disabled,
@@ -1579,7 +1580,15 @@ a {
   font-weight: 700;
   line-height: 18px;
 }
-.side-pane {
+/* Full layout: the pane wrappers are layout-transparent and the tab rail is hidden. */
+.game-side:not(.compact) > .side-pane {
+  display: contents;
+}
+.side-tabs[hidden],
+.side-pane[hidden] {
+  display: none;
+}
+.compact > .side-pane {
   width: 272px;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -1589,11 +1598,11 @@ a {
   gap: 8px;
   border-right: 1px solid var(--line);
 }
-.side-pane[hidden] {
+.compact > .side-pane[hidden] {
   display: none;
 }
-.side-pane .chat ol,
-.side-pane .log ol {
+.compact .side-pane .chat ol,
+.compact .side-pane .log ol {
   max-height: none;
 }
 

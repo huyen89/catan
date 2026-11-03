@@ -64,14 +64,20 @@ function becameMyMove(prev: Snapshot['view'], next: Snapshot['view']): boolean {
 
 /**
  * Sound cues for an incoming state. Only a live, consecutive update (same game, version + 1)
- * makes noise: the first state after joining, a resync after a reconnect (version gap) or a
- * repeat of the current version are history, not news.
+ * makes noise: joining mid-game, a resync after a reconnect (version gap) or a repeat of the
+ * current version are history, not news.
+ *
+ * The one exception is the first state of a brand-new game (version 0, e.g. after Start or a
+ * rematch while sitting in the room): if the viewer places first, that is their turn starting.
  */
 export function soundsFor(
   prev: Snapshot | null,
   next: Snapshot & { events: readonly GameEvent[] },
 ): SoundId[] {
-  if (!prev || prev.gameId !== next.gameId || next.version !== prev.version + 1) return [];
+  if (!prev || prev.gameId !== next.gameId) {
+    return next.version === 0 && mustAct(next.view, next.view.viewer) ? ['yourTurn'] : [];
+  }
+  if (next.version !== prev.version + 1) return [];
   const me = next.view.viewer;
   const cues = new Set<SoundId>();
   for (const e of next.events) {

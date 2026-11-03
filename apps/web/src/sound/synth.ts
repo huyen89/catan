@@ -1,27 +1,68 @@
 /**
- * Sound effects synthesised with WebAudio (no audio files). The AudioContext is created lazily on
- * the first cue; browsers keep it suspended until the page has had a user gesture, in which case
- * the cue is simply dropped.
+ * Sound effects synthesised with WebAudio (no audio files). Nothing is created until the first
+ * cue that is not muted (callers only invoke playSounds when unmuted). Browsers keep a context
+ * suspended until the page has had a user gesture: such a cue is dropped, and the next gesture
+ * (unless muted by then) resumes the context, after which the gesture listeners are removed.
  */
 import type { SoundId } from './events';
+import { useSoundStore } from './store';
 
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
+let unlockInstalled = false;
+
+function ensureContext(): AudioContext | null {
+  if (ctx) return ctx;
+  if (typeof window === 'undefined' || typeof window.AudioContext === 'undefined') return null;
+  try {
+    ctx = new AudioContext();
+    master = ctx.createGain();
+    master.gain.value = 0.35;
+    master.connect(ctx.destination);
+  } catch {
+    ctx = null;
+  }
+  return ctx;
+}
+
+function resume(): void {
+  if (!ctx || ctx.state === 'running') return;
+  ctx.resume().then(
+    () => {
+      if (ctx?.state === 'running') removeUnlock();
+    },
+    () => {},
+  );
+}
+
+function onGesture(): void {
+  if (useSoundStore.getState().muted) return;
+  resume();
+}
+
+function installUnlock(): void {
+  if (unlockInstalled) return;
+  unlockInstalled = true;
+  window.addEventListener('pointerdown', onGesture, true);
+  window.addEventListener('keydown', onGesture, true);
+}
+
+function removeUnlock(): void {
+  if (!unlockInstalled) return;
+  unlockInstalled = false;
+  window.removeEventListener('pointerdown', onGesture, true);
+  window.removeEventListener('keydown', onGesture, true);
+}
 
 function audio(): { ac: AudioContext; out: GainNode } | null {
-  if (typeof window === 'undefined' || typeof window.AudioContext === 'undefined') return null;
-  if (!ctx) {
-    try {
-      ctx = new AudioContext();
-      master = ctx.createGain();
-      master.gain.value = 0.35;
-      master.connect(ctx.destination);
-    } catch {
-      return null;
-    }
+  const ac = ensureContext();
+  if (!ac) return null;
+  if (ac.state !== 'running') {
+    installUnlock();
+    resume();
+    return null;
   }
-  if (ctx.state === 'suspended') void ctx.resume().catch(() => {});
-  return ctx.state === 'running' ? { ac: ctx, out: master! } : null;
+  return { ac, out: master! };
 }
 
 /** One enveloped oscillator note. */
@@ -49,19 +90,6 @@ function tone(
   osc.connect(g).connect(out);
   osc.start(opts.at);
   osc.stop(opts.at + opts.dur + 0.02);
-}
-
-/** Autoplay policy: create/resume the context inside the first user gesture so cues can play. */
-if (typeof window !== 'undefined') {
-  const unlock = () => {
-    audio();
-    if (ctx?.state === 'running') {
-      window.removeEventListener('pointerdown', unlock, true);
-      window.removeEventListener('keydown', unlock, true);
-    }
-  };
-  window.addEventListener('pointerdown', unlock, true);
-  window.addEventListener('keydown', unlock, true);
 }
 
 let noiseBuf: AudioBuffer | null = null;
@@ -130,7 +158,7 @@ const RECIPES: Record<SoundId, (ac: AudioContext, out: AudioNode, t: number) => 
 
 /** Play cues back to back. No-op without WebAudio or before the first user gesture. */
 export function playSounds(ids: readonly SoundId[]): void {
-  if (ids.length === 0) return;
+  if (ids.length === 0 || useSoundStore.getState().muted) return;
   const a = audio();
   if (!a) return;
   let t = a.ac.currentTime + 0.02;

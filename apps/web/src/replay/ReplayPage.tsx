@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ENGINE_VERSION, RESOURCES, type PlayerView, type Seat } from '@hexhaven/engine';
 import type { ReplayResponse } from '@hexhaven/shared';
 import { seatColor } from '../game/colors';
@@ -14,6 +14,7 @@ import { LoadState, PageShell } from '../ui/history/PageShell';
 import { CardsIcon, KnightIcon, ResourceIcon } from '../ui/icons';
 import { useAsync } from '../ui/useAsync';
 import { SPEEDS, frameCaption, positionLabel, stepDelay } from './caption';
+import { focusKind, replayKeyAction, type ReplayKeyAction } from './keys';
 import { ReplayTimeline, replayView } from './timeline';
 
 const NO_HIGHLIGHTS = computeHighlights(null, null);
@@ -56,10 +57,31 @@ function ReplayLoaded({ replay }: { replay: ReplayResponse }) {
   return <ReplayViewer replay={replay} timeline={built.timeline} />;
 }
 
-function isTyping(t: EventTarget | null): boolean {
+/**
+ * A playback button that stays focusable when it has nothing to do (aria-disabled + guard
+ * instead of `disabled`), so pressing "Go to end" does not drop keyboard focus to <body>.
+ */
+function CtlButton(props: {
+  label: string;
+  title?: string;
+  testId?: string;
+  off: boolean;
+  onPress(): void;
+  children: ReactNode;
+}) {
   return (
-    t instanceof HTMLElement &&
-    (t.isContentEditable || ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON', 'A'].includes(t.tagName))
+    <button
+      type="button"
+      aria-label={props.label}
+      title={props.title ?? props.label}
+      data-testid={props.testId}
+      aria-disabled={props.off}
+      onClick={() => {
+        if (!props.off) props.onPress();
+      }}
+    >
+      {props.children}
+    </button>
   );
 }
 
@@ -75,7 +97,10 @@ function ReplayViewer({ replay, timeline }: { replay: ReplayResponse; timeline: 
     [summary],
   );
   const colorOf = useCallback((seat: Seat) => seatColor(seat), []);
-  const view = useMemo(() => replayView(timeline.stateAt(frame)), [timeline, frame]);
+  const view = useMemo(
+    () => replayView(timeline.stateAt(frame), timeline.board),
+    [timeline, frame],
+  );
   const meta = timeline.frames[frame]!;
   const ctx: EventTextContext = useMemo(
     () => ({ name: nameOf, hexLabel: (id) => hexLabel(view.board, id) }),
@@ -84,10 +109,30 @@ function ReplayViewer({ replay, timeline }: { replay: ReplayResponse; timeline: 
   const caption = frameCaption(meta, ctx);
 
   const go = useCallback((i: number) => setFrame(timeline.clamp(i)), [timeline]);
-  const togglePlay = useCallback(() => {
+  const togglePlay = () => {
     if (!playing && frame >= last) setFrame(0);
     setPlaying(!playing);
-  }, [playing, frame, last]);
+  };
+  const step = (i: number) => {
+    setPlaying(false);
+    go(i);
+  };
+  const run = (a: ReplayKeyAction) => {
+    if (a === 'togglePlay') return togglePlay();
+    step(
+      {
+        stepForward: frame + 1,
+        stepBack: frame - 1,
+        nextTurn: timeline.nextTurn(frame),
+        prevTurn: timeline.prevTurn(frame),
+        start: 0,
+        end: last,
+      }[a],
+    );
+  };
+  // The window listener is registered once and always calls the latest `run`.
+  const runRef = useRef(run);
+  runRef.current = run;
 
   // Playback: one action per tick; stops at the end.
   useEffect(() => {
@@ -102,29 +147,19 @@ function ReplayViewer({ replay, timeline }: { replay: ReplayResponse; timeline: 
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target)) return;
-      const actions: Record<string, () => void> = {
-        ' ': togglePlay,
-        k: togglePlay,
-        ArrowRight: () => go(e.shiftKey ? timeline.nextTurn(frame) : frame + 1),
-        ArrowLeft: () => go(e.shiftKey ? timeline.prevTurn(frame) : frame - 1),
-        Home: () => go(0),
-        End: () => go(last),
-      };
-      const fn = actions[e.key];
-      if (!fn) return;
+      if (e.defaultPrevented) return;
+      const action = replayKeyAction(
+        e.key,
+        { shift: e.shiftKey, ctrl: e.ctrlKey, meta: e.metaKey, alt: e.altKey },
+        focusKind(e.target),
+      );
+      if (!action) return;
       e.preventDefault();
-      if (e.key !== ' ' && e.key !== 'k') setPlaying(false);
-      fn();
+      runRef.current(action);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [togglePlay, go, timeline, frame, last]);
-
-  const step = (i: number) => {
-    setPlaying(false);
-    go(i);
-  };
+  }, []);
 
   return (
     <div className="replay" data-testid="replay">
@@ -178,7 +213,12 @@ function ReplayViewer({ replay, timeline }: { replay: ReplayResponse; timeline: 
       </aside>
 
       <footer className="replay-controls">
-        <div className="replay-caption" aria-live="polite" data-testid="replay-caption">
+        {/* Announce single steps, but don't flood screen readers during autoplay. */}
+        <div
+          className="replay-caption"
+          aria-live={playing ? 'off' : 'polite'}
+          data-testid="replay-caption"
+        >
           <span className="muted small">
             {positionLabel(frame, timeline.length)}
             {meta.turn > 0 ? ` · turn ${meta.turn}` : ' · setup'}
@@ -195,33 +235,31 @@ function ReplayViewer({ replay, timeline }: { replay: ReplayResponse; timeline: 
           ))}
         </div>
         <div className="replay-buttons" role="group" aria-label="Playback">
-          <button
-            type="button"
-            aria-label="Go to start"
-            onClick={() => step(0)}
-            disabled={frame === 0}
+          <CtlButton
+            label="Go to start"
+            title="Go to start (Home)"
+            off={frame === 0}
+            onPress={() => run('start')}
           >
             ⏮
-          </button>
-          <button
-            type="button"
-            aria-label="Previous turn"
+          </CtlButton>
+          <CtlButton
+            label="Previous turn"
             title="Previous turn (Shift+←)"
-            onClick={() => step(timeline.prevTurn(frame))}
-            disabled={frame === 0}
+            off={frame === 0}
+            onPress={() => run('prevTurn')}
           >
             ⏪
-          </button>
-          <button
-            type="button"
-            aria-label="Step back"
+          </CtlButton>
+          <CtlButton
+            label="Step back"
             title="Step back (←)"
-            data-testid="replay-back-step"
-            onClick={() => step(frame - 1)}
-            disabled={frame === 0}
+            testId="replay-back-step"
+            off={frame === 0}
+            onPress={() => run('stepBack')}
           >
             ◀
-          </button>
+          </CtlButton>
           <button
             type="button"
             className="primary"
@@ -232,33 +270,31 @@ function ReplayViewer({ replay, timeline }: { replay: ReplayResponse; timeline: 
           >
             {playing ? '⏸' : '▶'}
           </button>
-          <button
-            type="button"
-            aria-label="Step forward"
+          <CtlButton
+            label="Step forward"
             title="Step forward (→)"
-            data-testid="replay-step"
-            onClick={() => step(frame + 1)}
-            disabled={frame >= last}
+            testId="replay-step"
+            off={frame >= last}
+            onPress={() => run('stepForward')}
           >
             ▶
-          </button>
-          <button
-            type="button"
-            aria-label="Next turn"
+          </CtlButton>
+          <CtlButton
+            label="Next turn"
             title="Next turn (Shift+→)"
-            onClick={() => step(timeline.nextTurn(frame))}
-            disabled={frame >= last}
+            off={frame >= last}
+            onPress={() => run('nextTurn')}
           >
             ⏩
-          </button>
-          <button
-            type="button"
-            aria-label="Go to end"
-            onClick={() => step(last)}
-            disabled={frame >= last}
+          </CtlButton>
+          <CtlButton
+            label="Go to end"
+            title="Go to end (End)"
+            off={frame >= last}
+            onPress={() => run('end')}
           >
             ⏭
-          </button>
+          </CtlButton>
           <select
             aria-label="Playback speed"
             value={speed}

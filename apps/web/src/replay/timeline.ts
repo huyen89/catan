@@ -13,6 +13,7 @@ import {
   toPlayerView,
   totalVP,
   type Action,
+  type Board,
   type GameEvent,
   type GameState,
   type PlayerView,
@@ -67,6 +68,8 @@ export class ReplayTimeline {
   readonly versionMismatch: boolean;
   /** The rebuilt game does not end with the recorded winner. */
   readonly diverged: boolean;
+  /** The game's board (fixed for the whole game), shared by every frame's view. */
+  readonly board: Board;
 
   private readonly actions: ReplayResponse['actions'];
   private readonly checkpoints = new Map<number, GameState>();
@@ -79,6 +82,7 @@ export class ReplayTimeline {
     this.versionMismatch = replay.engineVersion !== ENGINE_VERSION;
 
     let state = createGame(replay.config, replay.seed);
+    this.board = structuredClone(state.board);
     const frames: FrameMeta[] = [
       {
         seat: null,
@@ -171,9 +175,14 @@ export class ReplayTimeline {
   }
 }
 
-/** A spectator view with every hand revealed (replays are only served for finished games). */
-export function replayView(state: GameState): PlayerView {
+/**
+ * A spectator view with every hand revealed (replays are only served for finished games).
+ * Pass the timeline's `board` so every frame shares one board object (the board never changes
+ * during a game) and memos keyed on it stay valid while stepping.
+ */
+export function replayView(state: GameState, board?: Board): PlayerView {
   const view = toPlayerView(state, null);
+  if (board) view.board = board;
   view.players = view.players.map((p) => {
     const full = state.players[p.seat]!;
     return {

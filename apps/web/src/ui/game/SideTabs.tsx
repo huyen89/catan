@@ -11,16 +11,20 @@ const TABS: Array<{ id: SideTab; label: string; icon: ReactNode }> = [
 ];
 
 /**
- * Small-screen side column: a vertical tab rail plus one panel. Selecting the open tab again
- * collapses the panel so the board gets the full width.
+ * The side column. Full layout: every pane stacked. Compact (phone landscape): a vertical tab
+ * rail plus one visible pane; selecting the open tab again collapses it so the board gets the
+ * full width. Both layouts render the same keyed elements, so switching layout (rotating the
+ * phone) or tabs never remounts a pane: the voice bar would leave the call, and the trade draft
+ * and chat input would be lost.
  */
 export function SideTabs(props: {
+  compact: boolean;
   tab: SideTab | null;
   onTab(tab: SideTab | null): void;
   panes: Record<SideTab, ReactNode>;
   tradeBadge: number;
 }) {
-  const { tab, onTab, panes, tradeBadge } = props;
+  const { compact, tab, onTab, panes, tradeBadge } = props;
   const base = useId();
   const tabs = TABS.filter((t) => panes[t.id] !== null);
   const refs = useRef<Partial<Record<SideTab, HTMLButtonElement | null>>>({});
@@ -40,12 +44,14 @@ export function SideTabs(props: {
   };
 
   return (
-    <aside className={`game-side compact ${active ? 'open' : 'closed'}`}>
+    <aside className={compact ? `game-side compact ${active ? 'open' : 'closed'}` : 'game-side'}>
       <div
+        key="tabs"
         className="side-tabs"
         role="tablist"
         aria-label="Side panels"
         aria-orientation="vertical"
+        hidden={!compact}
       >
         {tabs.map((t, i) => {
           const selected = active === t.id;
@@ -80,18 +86,14 @@ export function SideTabs(props: {
           );
         })}
       </div>
-      {/*
-        Every pane stays mounted (hidden when not selected): the voice bar leaves the call when it
-        unmounts, and trade drafts / chat input must survive switching tabs.
-      */}
       {tabs.map((t) => (
         <div
           key={t.id}
           className="side-pane"
-          role="tabpanel"
+          role={compact ? 'tabpanel' : undefined}
           id={`${base}-pane-${t.id}`}
-          aria-labelledby={`${base}-tab-${t.id}`}
-          hidden={active !== t.id}
+          aria-labelledby={compact ? `${base}-tab-${t.id}` : undefined}
+          hidden={compact && active !== t.id}
         >
           {panes[t.id]}
         </div>

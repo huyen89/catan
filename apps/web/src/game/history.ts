@@ -19,7 +19,7 @@ export function formatDateTime(ts: number, locale?: string, timeZone?: string): 
   }).format(ts);
 }
 
-export type GameResult = 'won' | 'lost' | 'active' | 'abandoned' | 'watched';
+export type GameResult = 'won' | 'lost' | 'active' | 'abandoned' | 'finished';
 
 export interface HistoryRow {
   gameId: string;
@@ -41,7 +41,8 @@ export function historyRow(g: GameSummary): HistoryRow {
   let result: GameResult;
   if (g.status === 'active') result = 'active';
   else if (g.status === 'abandoned') result = 'abandoned';
-  else if (g.mySeat === null) result = 'watched';
+  // Neutral when I did not play, or the game ended without a winner (nobody to win or lose to).
+  else if (g.mySeat === null || g.winner === null) result = 'finished';
   else result = g.winner === g.mySeat ? 'won' : 'lost';
   return {
     gameId: g.gameId,
@@ -69,7 +70,7 @@ export const RESULT_LABEL: Record<GameResult, string> = {
   lost: 'Lost',
   active: 'In progress',
   abandoned: 'Abandoned',
-  watched: 'Finished',
+  finished: 'Finished',
 };
 
 /** "57%"; an em dash when nothing was played. */

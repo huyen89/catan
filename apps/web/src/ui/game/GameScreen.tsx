@@ -132,32 +132,23 @@ export function GameScreen({ header, onLeave, chatDisabled }: GameScreenProps) {
         />
       </main>
 
-      {compact ? (
-        <SideTabs
-          tab={sideTab}
-          onTab={setSideTab}
-          tradeBadge={offersAwaitingMe(view.trades, me)}
-          panes={{
-            players: (
-              <>
-                <VoiceBar />
-                <PlayersPanel view={view} />
-              </>
-            ),
-            trade: me !== null ? <TradePanel view={view} busy={busy} /> : null,
-            log: <GameLog board={view.board} />,
-            chat: <ChatPanel disabled={chatDisabled} />,
-          }}
-        />
-      ) : (
-        <aside className="game-side">
-          <VoiceBar />
-          <PlayersPanel view={view} />
-          {me !== null && <TradePanel view={view} busy={busy} />}
-          <GameLog board={view.board} />
-          <ChatPanel disabled={chatDisabled} />
-        </aside>
-      )}
+      <SideTabs
+        compact={compact}
+        tab={sideTab}
+        onTab={setSideTab}
+        tradeBadge={offersAwaitingMe(view.trades, me)}
+        panes={{
+          players: (
+            <>
+              <VoiceBar />
+              <PlayersPanel view={view} />
+            </>
+          ),
+          trade: me !== null ? <TradePanel view={view} busy={busy} /> : null,
+          log: <GameLog board={view.board} />,
+          chat: <ChatPanel disabled={chatDisabled} />,
+        }}
+      />
 
       <footer className="game-bottom">
         {me !== null ? (

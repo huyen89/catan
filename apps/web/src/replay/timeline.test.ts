@@ -136,6 +136,15 @@ describe('replayView', () => {
     }
   });
 
+  it('shares one board object across frames', () => {
+    const { replay } = fixture(60);
+    const tl = new ReplayTimeline(replay);
+    const a = replayView(tl.stateAt(3), tl.board);
+    const b = replayView(tl.stateAt(40), tl.board);
+    expect(a.board).toBe(b.board);
+    expect(b.board).toEqual(tl.stateAt(40).board);
+  });
+
   it('activeSeat follows the setup order', () => {
     const { states } = fixture(3);
     const s0 = states[0]!;

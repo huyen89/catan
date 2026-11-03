@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GameSummary, StatsResponse } from '@hexhaven/shared';
 import {
+  RESULT_LABEL,
   formatAverage,
   formatDateTime,
   formatPercent,
@@ -53,7 +54,11 @@ describe('historyRow', () => {
     expect(active.winnerName).toBeNull();
     expect(historyRow(game({ status: 'abandoned', winner: null })).result).toBe('abandoned');
     const watched = historyRow(game({ mySeat: null }));
-    expect(watched).toMatchObject({ result: 'watched', myVp: null });
+    expect(watched).toMatchObject({ result: 'finished', myVp: null });
+    // Finished without a winner: neutral, not "Lost".
+    const noWinner = historyRow(game({ winner: null }));
+    expect(noWinner).toMatchObject({ result: 'finished', winnerName: null, myVp: 7 });
+    expect(RESULT_LABEL[noWinner.result]).toBe('Finished');
   });
 });
 
