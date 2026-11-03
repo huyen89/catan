@@ -32,11 +32,29 @@ function violations(layout: LayoutDef, state: GameState, portMode: PortMode): st
   if (board.layoutId !== layout.id) out.push(`layoutId ${board.layoutId}`);
   const ids = layout.hexes.map((h) => hexId(h.q, h.r));
   if (sortStr(board.hexes.map((h) => h.id)).join() !== sortStr(ids).join()) out.push('hex set');
-  const pool = board.hexes.filter((h) => !fixed.has(h.id));
-  if (sortStr(pool.map((h) => h.terrain)).join() !== sortStr(expandPool(layout.terrainPool)).join())
-    out.push('pool terrains');
-  const poolTokens = pool.flatMap((h) => (h.token === null ? [] : [h.token]));
-  if (sortNum(poolTokens).join() !== sortNum(layout.tokenPool).join()) out.push('pool tokens');
+  // Each pool group (the global pools, then every region) holds exactly its pool's components.
+  const regions = layout.regionPools ?? [];
+  const inRegion = new Set(regions.flatMap((r) => r.hexes));
+  const groups = [
+    {
+      name: 'global',
+      hexes: board.hexes.filter((h) => !fixed.has(h.id) && !inRegion.has(h.id)),
+      pool: layout as Pick<LayoutDef, 'terrainPool' | 'tokenPool'>,
+    },
+    ...regions.map((r, i) => ({
+      name: `region ${i}`,
+      hexes: r.hexes.map((id) => byId.get(id)!),
+      pool: r,
+    })),
+  ];
+  for (const { name, hexes, pool } of groups) {
+    if (
+      sortStr(hexes.map((h) => h.terrain)).join() !== sortStr(expandPool(pool.terrainPool)).join()
+    )
+      out.push(`${name} terrains`);
+    const tokens = hexes.flatMap((h) => (h.token === null ? [] : [h.token]));
+    if (sortNum(tokens).join() !== sortNum(pool.tokenPool).join()) out.push(`${name} tokens`);
+  }
   for (const [id, f] of fixed) {
     const h = byId.get(id)!;
     if (h.terrain !== f.terrain || h.token !== (f.token ?? null)) out.push(`fixed ${id} changed`);
@@ -45,7 +63,7 @@ function violations(layout: LayoutDef, state: GameState, portMode: PortMode): st
     const tokenless = h.terrain === 'sea' || h.terrain === 'desert';
     if (tokenless && h.token !== null) out.push(`${h.terrain} ${h.id} has a token`);
     if (!tokenless && h.token === null) out.push(`${h.terrain} ${h.id} lacks a token`);
-    if (h.terrain === 'gold' && !fixed.has(h.id) && isRed(h.token)) out.push(`6/8 on gold ${h.id}`);
+    if (h.terrain === 'gold' && isRed(h.token)) out.push(`6/8 on gold ${h.id}`);
     for (const n of hexNeighbors(h.q, h.r)) {
       const o = byId.get(n);
       if (o && h.id < o.id && isRed(h.token) && isRed(o.token)) out.push(`6/8 ${h.id}~${o.id}`);
@@ -61,6 +79,9 @@ function violations(layout: LayoutDef, state: GameState, portMode: PortMode): st
   const home = sortNum([...new Set((layout.homeHexes ?? []).map((h) => g.islandOf[h]!))]);
   if (home.length === 0 || board.homeIslands.join() !== home.join()) out.push('homeIslands');
   if (board.islandBonusVP !== (layout.islandBonusVP ?? 0)) out.push('islandBonusVP');
+  for (const h of board.hexes)
+    if (h.terrain === 'gold' && !fixed.has(h.id) && board.homeIslands.includes(g.islandOf[h.id]!))
+      out.push(`pool gold ${h.id} on a home island`);
 
   // Ports.
   if (
@@ -76,8 +97,8 @@ function violations(layout: LayoutDef, state: GameState, portMode: PortMode): st
     for (const q of board.ports.slice(i + 1))
       if (p.vertices.some((v) => q.vertices.includes(v)))
         out.push(`ports ${p.edge}~${q.edge} touch`);
-    if (portMode === 'random' && !board.homeIslands.includes(islandOfEdge(g, p.edge)))
-      out.push(`random port ${p.edge} off the home islands`);
+    if (!board.homeIslands.includes(islandOfEdge(g, p.edge)))
+      out.push(`${portMode} port ${p.edge} off the home islands`);
   });
   if (portMode === 'fixed') {
     const want = layout.portSlots.map((s) => g.coastEdges[s % g.coastEdges.length]);
@@ -282,5 +303,121 @@ describe('Open Seas layout validation', () => {
       seedRng('h'),
     );
     expect(board.homeIslands).toEqual([0, 1, 2, 3]);
+  });
+});
+
+describe('Open Seas fixed ports', () => {
+  it('fixed slots sit on home islands only; the archipelago gets 2 per home island', () => {
+    for (const id of SCENARIO_IDS) {
+      const board = generateBoard(
+        SCENARIOS[id],
+        { numberMode: 'random', portMode: 'fixed' },
+        seedRng(`fx-${id}`),
+      );
+      const g = graphFor(board);
+      const perIsland = new Map<number, number>();
+      for (const p of board.ports) {
+        const island = islandOfEdge(g, p.edge);
+        expect(board.homeIslands).toContain(island);
+        perIsland.set(island, (perIsland.get(island) ?? 0) + 1);
+      }
+      if (id === 'archipelago') {
+        expect(sortNum([...perIsland.keys()])).toEqual(board.homeIslands);
+        expect([...perIsland.values()]).toEqual([2, 2, 2, 2]);
+      }
+    }
+  });
+
+  it('random mode breaks equal remainders with the seed', () => {
+    // 9 ports on 4 equal home coasts: 2 each plus one extra, which every coast gets for some seed.
+    const layout: LayoutDef = { ...SCENARIOS.archipelago, portPool: { any: 9 } };
+    const extra = new Set<number>();
+    for (let s = 0; s < 100; s++) {
+      const board = generateBoard(
+        layout,
+        { numberMode: 'random', portMode: 'random' },
+        seedRng(`t${s}`),
+      );
+      const g = graphFor(board);
+      const perIsland = new Map<number, number>();
+      for (const p of board.ports) {
+        const island = islandOfEdge(g, p.edge);
+        perIsland.set(island, (perIsland.get(island) ?? 0) + 1);
+      }
+      expect(sortNum([...perIsland.values()])).toEqual([2, 2, 2, 3]);
+      for (const [island, n] of perIsland) if (n === 3) extra.add(island);
+    }
+    expect(extra.size).toBe(4);
+  });
+});
+
+describe('Open Seas region pools', () => {
+  it('scenario regions cover the outer islands, so pool gold never lands on a home island', () => {
+    for (const id of ['newShores', 'grandVoyage'] as const) {
+      const layout = SCENARIOS[id];
+      const board = generateBoard(layout, { numberMode: 'random', portMode: 'fixed' }, seedRng(id));
+      const g = graphFor(board);
+      const region = new Set(layout.regionPools!.flatMap((r) => r.hexes));
+      const fixed = new Set(layout.fixedHexes!.map((f) => hexId(f.q, f.r)));
+      expect(layout.regionPools!.some((r) => (r.terrainPool.gold ?? 0) > 0)).toBe(true);
+      expect(layout.terrainPool.gold ?? 0).toBe(0);
+      // Every non-fixed outer-island hex is in the region, and no home hex is.
+      for (const h of g.landHexes)
+        if (!fixed.has(h))
+          expect(region.has(h), h).toBe(!board.homeIslands.includes(g.islandOf[h]!));
+    }
+  });
+
+  it('regions draw from their own pools and count earlier groups as token neighbours', () => {
+    // Base board with the centre and inner ring as a region holding one 8; the outer ring
+    // (global pools with the desert, placed first) holds three 6/8 the region must keep away
+    // from. The centre never touches the outer ring, so this is always achievable.
+    const inner = [hexId(0, 0), ...hexNeighbors(0, 0)];
+    const layout: LayoutDef = {
+      ...BASE_LAYOUT,
+      id: 'ringRegion',
+      terrainPool: { forest: 3, pasture: 3, fields: 3, hills: 1, mountains: 1, desert: 1 },
+      tokenPool: [2, 3, 4, 5, 6, 6, 8, 9, 10, 11, 11],
+      regionPools: [
+        {
+          hexes: inner,
+          terrainPool: { forest: 1, pasture: 1, fields: 1, hills: 2, mountains: 2 },
+          tokenPool: [3, 4, 5, 8, 9, 10, 12],
+        },
+      ],
+    };
+    for (let s = 0; s < 300; s++) {
+      const board = generateBoard(
+        layout,
+        { numberMode: 'spiral', portMode: 'fixed' },
+        seedRng(`rg${s}`),
+      );
+      const byId = new Map(board.hexes.map((h) => [h.id, h]));
+      const innerHexes = inner.map((id) => byId.get(id)!);
+      expect(innerHexes.map((h) => h.terrain)).not.toContain('desert');
+      expect(sortNum(innerHexes.map((h) => h.token!))).toEqual([3, 4, 5, 8, 9, 10, 12]);
+      for (const h of board.hexes)
+        for (const n of hexNeighbors(h.q, h.r)) {
+          const o = byId.get(n);
+          if (o && isRed(h.token)) expect(isRed(o.token), `seed ${s} ${h.id}~${o.id}`).toBe(false);
+        }
+    }
+  });
+
+  it('rejects overlapping regions, fixed region hexes, miscounted pools and sea in a pool', () => {
+    const mode = { numberMode: 'random', portMode: 'fixed' } as const;
+    const ns = SCENARIOS.newShores;
+    const region = ns.regionPools![0]!;
+    const sea = ns.fixedHexes!.find((f) => f.terrain === 'sea')!;
+    const bad = (patch: Partial<LayoutDef>) => () =>
+      generateBoard({ ...ns, ...patch }, mode, seedRng('bad'));
+    expect(bad({ regionPools: [region, { ...region, hexes: [region.hexes[0]!] }] })).toThrow(
+      /two regions/,
+    );
+    expect(
+      bad({ regionPools: [{ ...region, hexes: [...region.hexes, hexId(sea.q, sea.r)] }] }),
+    ).toThrow(/fixed/);
+    expect(bad({ regionPools: [{ ...region, tokenPool: [3] }] })).toThrow(/tokens for/);
+    expect(bad({ terrainPool: { ...ns.terrainPool, forest: 3, sea: 1 } })).toThrow(/sea hexes/);
   });
 });
