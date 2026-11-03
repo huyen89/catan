@@ -42,6 +42,8 @@ Interface stubs owned by one workstream and consumed by another (keep the export
   (`@hexhaven/shared` `C2S`) and seat ownership is checked server-side.
 - **Hidden information** leaves the server only via `toPlayerView`/`redactEvent`. Any new `GameState`
   field must be classified in `view.ts`.
+  Sole exception: `GET /api/games/:id/replay` returns the seed + raw action log, only to participants of a
+  **finished** game (hidden info is public by then).
 - Bots see only `PlayerView` (no cheating).
 - No secrets in the repo; config via env (`.env.example`).
 
