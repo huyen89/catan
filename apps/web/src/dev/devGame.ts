@@ -24,12 +24,8 @@ import {
   type ResourceCounts,
   type Seat,
 } from '@hexhaven/engine';
-import {
-  PLAYER_COLORS,
-  type GameStatePayload,
-  type RoomInfo,
-  type SeatInfo,
-} from '@hexhaven/shared';
+import type { GameStatePayload, RoomInfo, SeatInfo } from '@hexhaven/shared';
+import { seatColor } from '../game/colors';
 
 export const DEV_NAMES = ['Alice', 'Bruno', 'Chen', 'Dana', 'Emeka', 'Freya'];
 
@@ -224,7 +220,7 @@ export function devRoom(players: number): RoomInfo {
     userId: `dev-${i}`,
     name: DEV_NAMES[i]!,
     avatarUrl: null,
-    color: PLAYER_COLORS[i]!,
+    color: seatColor(i),
     ready: true,
     connected: i !== 2,
     controller: i === 0 || i % 2 === 0 ? 'human' : 'bot',

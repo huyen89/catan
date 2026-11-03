@@ -1,4 +1,11 @@
-import type { GuestLoginBody, LoginResponse, MeResponse } from '@hexhaven/shared';
+import type {
+  GameListResponse,
+  GuestLoginBody,
+  LoginResponse,
+  MeResponse,
+  ReplayResponse,
+  StatsResponse,
+} from '@hexhaven/shared';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -47,4 +54,8 @@ export const api = {
   google: (credential: string) =>
     request<LoginResponse>('POST', '/api/auth/google', { credential }),
   logout: () => request<unknown>('POST', '/api/auth/logout', {}),
+  games: () => request<GameListResponse>('GET', '/api/games'),
+  replay: (gameId: string) =>
+    request<ReplayResponse>('GET', `/api/games/${encodeURIComponent(gameId)}/replay`),
+  stats: () => request<StatsResponse>('GET', '/api/stats'),
 };

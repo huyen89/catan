@@ -4,6 +4,9 @@ import type { C2SPayload, GameStatePayload } from '@hexhaven/shared';
 import { sanitizeMode, type UiMode } from '../game/highlights';
 import { errorMessage } from '../net/emit';
 import { emitAck } from '../net/socket';
+import { soundsFor } from '../sound/events';
+import { useSoundStore } from '../sound/store';
+import { playSounds } from '../sound/synth';
 import { emptyGameSlice, mergeGameState, type GameSlice } from './gameMerge';
 import { toastError } from './toast';
 
@@ -34,7 +37,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const next = mergeGameState(prev, p, Date.now());
     if (next === prev) return;
     const turnChanged = prev.payload?.view.turn.current !== p.view.turn.current;
+    const sounds = soundsFor(prev.payload, p);
     set({ ...next, mode: turnChanged ? null : sanitizeMode(p.view, prev.mode) });
+    if (sounds.length && !useSoundStore.getState().muted) playSounds(sounds);
   },
   setMode(mode) {
     set({ mode });

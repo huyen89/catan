@@ -4,6 +4,7 @@ import { emitAck } from '../net/socket';
 import { bindSocket, enterRoom, request } from '../net/session';
 import { navigate, roomPath } from '../router';
 import { useSession } from '../store/session';
+import { Link } from './common';
 
 const CODE_RE = /^[A-Z0-9]{6}$/;
 
@@ -71,6 +72,14 @@ export function HomePage() {
             Join
           </button>
         </form>
+        <nav className="home-links" aria-label="Your games">
+          <Link to="/history" testId="nav-history">
+            Game history
+          </Link>
+          <Link to="/stats" testId="nav-stats">
+            Stats
+          </Link>
+        </nav>
       </div>
     </div>
   );

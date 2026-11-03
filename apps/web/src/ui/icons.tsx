@@ -210,3 +210,65 @@ export function KnightIcon() {
     </svg>
   );
 }
+
+const line = {
+  width: 22,
+  height: 22,
+  viewBox: '0 0 16 16',
+  'aria-hidden': true,
+  focusable: false,
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 1.4,
+  strokeLinecap: 'round',
+  strokeLinejoin: 'round',
+} as const;
+
+export function PeopleIcon() {
+  return (
+    <svg {...line}>
+      <circle cx={6} cy={5} r={2.5} />
+      <path d="M1.5,14 c0,-3 2,-5 4.5,-5 s4.5,2 4.5,5" />
+      <path d="M10.5,2.8 a2.3,2.3 0 1 1 0,4.4 M12,9.3 c1.6,0.6 2.5,2.4 2.5,4.7" />
+    </svg>
+  );
+}
+
+export function TradeIcon() {
+  return (
+    <svg {...line}>
+      <path d="M2,5 H13 M10,2 L13,5 L10,8" />
+      <path d="M14,11 H3 M6,8 L3,11 L6,14" />
+    </svg>
+  );
+}
+
+export function LogIcon() {
+  return (
+    <svg {...line}>
+      <path d="M5.5,3.5 H14 M5.5,8 H14 M5.5,12.5 H14" />
+      <path d="M2,3.5 h0.5 M2,8 h0.5 M2,12.5 h0.5" strokeWidth={2} />
+    </svg>
+  );
+}
+
+export function ChatIcon() {
+  return (
+    <svg {...line}>
+      <path d="M2,3.5 C2,2.7 2.7,2 3.5,2 H12.5 C13.3,2 14,2.7 14,3.5 V9.5 C14,10.3 13.3,11 12.5,11 H7 L3.5,14 V11 C2.7,11 2,10.3 2,9.5 Z" />
+    </svg>
+  );
+}
+
+export function SpeakerIcon({ muted }: { muted: boolean }) {
+  return (
+    <svg {...line} width={18} height={18}>
+      <path d="M2,6 H5 L9,2.5 V13.5 L5,10 H2 Z" fill="currentColor" />
+      {muted ? (
+        <path d="M11,6 L15,10 M15,6 L11,10" />
+      ) : (
+        <path d="M11.5,5.5 a3.5,3.5 0 0 1 0,5 M13,3.5 a6,6 0 0 1 0,9" />
+      )}
+    </svg>
+  );
+}
