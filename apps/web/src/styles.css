@@ -545,6 +545,10 @@ label {
   letter-spacing: 0.1em;
   color: var(--accent);
 }
+.dev-tools {
+  flex-wrap: wrap;
+  max-width: 300px;
+}
 .dev-tools strong {
   color: var(--danger);
   font-size: 0.8rem;
@@ -641,8 +645,11 @@ label {
 .hex-gold {
   fill: url(#hex-gold-fill);
 }
+.hex-gold {
+  stroke: #fff3c4;
+}
 .hex-gold + .hex-glyph {
-  color: rgb(110 70 0 / 0.55);
+  color: rgb(70 35 0 / 0.7);
 }
 .shore-line {
   stroke: var(--sand);
@@ -876,13 +883,14 @@ label {
 .award.island {
   background: #9fe3ff;
 }
-.mode-hint {
-  font-weight: 500;
-}
 .piece-toggle {
   display: inline-flex;
   gap: 2px;
   flex: none;
+}
+.piece-toggle button {
+  background: rgb(255 255 255 / 0.4);
+  color: var(--accent-ink);
 }
 .piece-toggle button.on {
   background: var(--accent-ink);

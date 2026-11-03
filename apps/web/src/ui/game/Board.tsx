@@ -230,9 +230,9 @@ function BoardImpl(props: BoardProps) {
     >
       <defs>
         <linearGradient id="hex-gold-fill" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#f7e08a" />
-          <stop offset="55%" stopColor="#d9a520" />
-          <stop offset="100%" stopColor="#a8770f" />
+          <stop offset="0%" stopColor="#fff0a8" />
+          <stop offset="45%" stopColor="#e39a12" />
+          <stop offset="100%" stopColor="#8a4f00" />
         </linearGradient>
       </defs>
       {/* Ports under the terrain on classic boards (docks reach out over the sea); on Open

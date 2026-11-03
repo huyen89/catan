@@ -70,12 +70,13 @@ export const PORT_OFFSET = 0.62;
 
 /**
  * Where to draw a port marker: pushed out from the coast edge's midpoint, away from the land hex
- * that owns the edge.
+ * that owns the edge (on Open Seas boards the edge also touches a sea hex, which is skipped).
  */
 export function portAnchor(g: BoardGraph, edge: EdgeId, size = HEX_SIZE): Point {
   const [a, b] = edgePoints(g, edge, size);
   const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-  const land = g.edgeHexes[edge]?.[0];
+  const hexes = g.edgeHexes[edge] ?? [];
+  const land = hexes.find((h) => g.islandOf[h] !== undefined) ?? hexes[0];
   if (!land) return mid;
   const c = hexCenter(land, size);
   const dx = mid.x - c.x;

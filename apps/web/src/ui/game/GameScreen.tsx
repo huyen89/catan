@@ -129,10 +129,8 @@ export function GameScreen({ header, onLeave, chatDisabled }: GameScreenProps) {
           role="status"
           aria-live="polite"
         >
-          <span>
-            {prompt.text}
-            {hint && <span className="mode-hint"> · {hint}</span>}
-          </span>
+          {/* A multi-step mode (e.g. moving a ship) says what to click next instead. */}
+          <span>{hint ?? prompt.text}</span>
           {hl.pieces.length > 1 && (
             <span className="piece-toggle" role="group" aria-label="Piece to place">
               {hl.pieces.map((p) => (

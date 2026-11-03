@@ -86,7 +86,7 @@ export function placeSeasDemo(state: GameState): void {
         state.buildings[v] = { owner: seat, kind: 'settlement' };
         state.players[seat]!.settlementsLeft--;
         const roads = (g.vertexEdges[v] ?? []).filter(
-          (e) => roadSet.has(e) && state.roads[e] === undefined,
+          (e) => roadSet.has(e) && state.roads[e] === undefined && state.ships[e] === undefined,
         );
         // Prefer an inland road (both sides land) so the coast stays free for ships.
         const road =
@@ -220,8 +220,12 @@ export function seasLegal(state: GameState, seat: Seat, real: LegalSummary): Leg
   if (pirateHexes.length) actions.add('MOVE_PIRATE');
   if (goldCount > 0) actions.add('CHOOSE_GOLD');
 
+  // Until the engine knows the robber stays on land, keep the fixture's targets realistic.
+  const robberHexes = real.robberHexes.filter((h) => terrain.get(h) !== 'sea');
+
   return {
     ...real,
+    robberHexes,
     actions: [...actions],
     shipEdges: mine || phase.kind === 'setup' ? shipEdges : [],
     shipMoves,
