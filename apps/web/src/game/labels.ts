@@ -69,6 +69,25 @@ export function awardBadge(award: Award, variant?: string): string {
   return variant === 'seafarers' ? 'Route' : 'Road';
 }
 
+/**
+ * Where an edge is, for screen readers: "between Forest 4 and Sea", or "next to Hills 5" on the
+ * board edge. Falls back to the raw id for unknown edges.
+ */
+export function edgePlace(
+  board: Board,
+  edgeHexes: Readonly<Record<string, readonly string[]>>,
+  edge: string,
+): string {
+  const label = (id: string) => {
+    const h = board.hexes.find((x) => x.id === id);
+    return h ? `${TERRAIN_LABEL[h.terrain]}${h.token ? ` ${h.token}` : ''}` : id;
+  };
+  const hexes = edgeHexes[edge] ?? [];
+  if (hexes.length === 2) return `between ${label(hexes[0]!)} and ${label(hexes[1]!)}`;
+  if (hexes.length === 1) return `next to ${label(hexes[0]!)}`;
+  return `at ${edge}`;
+}
+
 /** "Forest (8)" — used by the log and robber prompts. */
 export function hexLabel(board: Board, id: string): string {
   const h = board.hexes.find((x) => x.id === id);

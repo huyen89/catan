@@ -10,6 +10,7 @@ import {
 import {
   HEX_SIZE,
   boardViewBox,
+  clampSprite,
   edgeMidpoint,
   edgePoints,
   hexCenter,
@@ -24,7 +25,7 @@ import {
   viewBoxAttr,
 } from '../../game/geometry';
 import type { EdgeAction, HexAction, Highlights } from '../../game/highlights';
-import { TERRAIN_LABEL } from '../../game/labels';
+import { TERRAIN_LABEL, edgePlace } from '../../game/labels';
 import { GlyphShape, TERRAIN_GLYPH } from '../icons';
 
 export interface BoardProps {
@@ -206,7 +207,11 @@ function BoardImpl(props: BoardProps) {
   const graph = useMemo(() => graphFor(board), [board]);
   const hexById = useMemo(() => new Map(board.hexes.map((h) => [h.id, h])), [board]);
   const robber = hexCenter(view.robber);
-  const pirate = view.pirate ? hexCenter(view.pirate) : null;
+  // The pirate sprite spans x ±17, y -21..+11 around its anchor; keep it clear of the cropped rim.
+  const pirateHex = view.pirate ? hexCenter(view.pirate) : null;
+  const pirate = pirateHex
+    ? clampSprite({ x: pirateHex.x, y: pirateHex.y + 4 }, vb, 18, -21, 11)
+    : null;
   const ships = view.ships ?? {};
   const hexLabel = (id: string) => {
     const h = hexById.get(id);
@@ -293,7 +298,7 @@ function BoardImpl(props: BoardProps) {
         <g
           className="pirate"
           data-testid="pirate"
-          transform={`translate(${round(pirate.x)} ${round(pirate.y + 4)})`}
+          transform={`translate(${round(pirate.x)} ${round(pirate.y)})`}
         >
           <title>Pirate</title>
           <path d={PIRATE_SAIL} className="pirate-sail" />
@@ -362,7 +367,11 @@ function BoardImpl(props: BoardProps) {
                 role="button"
                 tabIndex={0}
                 aria-pressed={picked}
-                aria-label={picked ? `Ship at ${id} (selected)` : `Move the ship at ${id}`}
+                aria-label={
+                  picked
+                    ? `Your ship ${edgePlace(board, graph.edgeHexes, id)} (selected)`
+                    : `Move your ship ${edgePlace(board, graph.edgeHexes, id)}`
+                }
                 aria-disabled={disabled}
                 onClick={() => props.onShip?.(id)}
                 onKeyDown={activate(() => props.onShip?.(id))}
@@ -386,7 +395,7 @@ function BoardImpl(props: BoardProps) {
                 className="hl hl-edge"
                 role="button"
                 tabIndex={0}
-                aria-label={`${edgeVerb} at ${id}`}
+                aria-label={`${edgeVerb} ${edgePlace(board, graph.edgeHexes, id)}`}
                 aria-disabled={disabled}
                 onClick={() => props.onEdge(id)}
                 onKeyDown={activate(() => props.onEdge(id))}

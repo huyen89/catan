@@ -10,6 +10,7 @@ import {
   type PlayerView,
 } from '@hexhaven/engine';
 import { goldLimits, goldReady } from './gold';
+import { edgePlace } from './labels';
 import { computeHighlights, movableShips, sanitizeMode, sanitizeShipFrom } from './highlights';
 import { hasShips, modeHint, phasePrompt } from './prompt';
 
@@ -181,5 +182,21 @@ describe('gold choice', () => {
     expect(goldReady(resourcesOf({ grain: 1 }), 2, bank)).toBe(false);
     expect(goldReady(resourcesOf({ lumber: 1 }), 1, bank)).toBe(false);
     expect(goldReady(emptyResources(), 0, bank)).toBe(false);
+  });
+});
+
+describe('edge descriptions', () => {
+  it('names the hexes on both sides of an edge', () => {
+    const board = {
+      ...sea.board,
+      hexes: [
+        { id: '0,0', q: 0, r: 0, terrain: 'forest' as const, token: 4 },
+        { id: '1,0', q: 1, r: 0, terrain: 'sea' as const, token: null },
+      ],
+    };
+    const hexes = { a: ['0,0', '1,0'], b: ['0,0'] };
+    expect(edgePlace(board, hexes, 'a')).toBe('between Forest 4 and Sea');
+    expect(edgePlace(board, hexes, 'b')).toBe('next to Forest 4');
+    expect(edgePlace(board, hexes, 'c')).toBe('at c');
   });
 });

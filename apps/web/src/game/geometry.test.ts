@@ -11,6 +11,7 @@ import {
   HEX_SIZE,
   RIM_MARGIN,
   boardViewBox,
+  clampSprite,
   edgeMidpoint,
   edgePoints,
   hexCornerPoints,
@@ -117,11 +118,26 @@ describe('Open Seas boards', () => {
         expect(inside(hexToPixel(h.q, h.r, HEX_SIZE))).toBe(true);
       }
       for (const port of board.ports) expect(inside(portAnchor(g, port.edge))).toBe(true);
-      for (const e of g.seaEdges) expect(inside(edgeMidpoint(g, e))).toBe(true);
+      // Whole sprites stay in view: the pirate on any sea hex (clamped into the box), and a
+      // ship on any sea edge (drawn at midpoint + 2, about 28×24).
+      const box = (c: { x: number; y: number }, dx: number, top: number, bottom: number) =>
+        [
+          { x: c.x - dx, y: c.y + top },
+          { x: c.x + dx, y: c.y + bottom },
+        ].every(inside);
+      for (const h of board.hexes)
+        if (h.terrain === 'sea') {
+          const c = hexToPixel(h.q, h.r, HEX_SIZE);
+          const at = clampSprite({ x: c.x, y: c.y + 4 }, vb, 18, -21, 11);
+          expect(box(at, 18, -21, 11)).toBe(true);
+          // Clamping only nudges it: the pirate stays over its own hex.
+          expect(Math.hypot(at.x - c.x, at.y - c.y)).toBeLessThan(HEX_SIZE * 0.5);
+        }
+      for (const e of g.seaEdges) expect(box(edgeMidpoint(g, e), 14, -12, 10)).toBe(true);
       // Smaller than the uncropped box would be.
       const xs = board.hexes.flatMap((h) => hexCornerPoints(h.q, h.r).map((p) => p.x));
       expect(vb.width).toBeLessThan(Math.max(...xs) - Math.min(...xs));
-      expect(RIM_MARGIN).toBeLessThan(1);
+      expect(RIM_MARGIN).toBeLessThan(1.5);
     });
 
     it(`pushes ports out over the sea, away from their land hex (${id})`, () => {

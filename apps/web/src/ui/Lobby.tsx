@@ -1,13 +1,8 @@
 import { useEffect, useState } from 'react';
-import {
-  effectiveScenario,
-  type BotDifficulty,
-  type RoomInfo,
-  type RoomSettings,
-  type SeatInfo,
-} from '@hexhaven/shared';
+import type { BotDifficulty, RoomInfo, RoomSettings, SeatInfo } from '@hexhaven/shared';
 import {
   canStart,
+  effectiveScenario,
   effectiveVariant,
   parseBoundedInt,
   scenarioOptions,

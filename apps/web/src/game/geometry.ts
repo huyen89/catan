@@ -105,12 +105,15 @@ export function rimSeaHexes(board: Board): Set<HexId> {
   return rim;
 }
 
-/** How much of the rim stays visible around the inner hexes of a sea-framed board, in radii. */
-export const RIM_MARGIN = 0.9;
+/**
+ * How much of the rim stays visible around the inner hexes of a sea-framed board, in radii:
+ * enough for a whole pirate sprite on a rim hex and a ship on any edge next to the rim.
+ */
+export const RIM_MARGIN = 1.1;
 
 /**
  * A viewBox containing every hex plus room for port markers around the coast. On sea-framed
- * boards (Open Seas) the outer sea ring is cropped to about half a hex: ports sit on inner
+ * boards (Open Seas) the outer sea ring is cropped to its inner half: ports sit on inner
  * coasts there, and the bigger maps need every pixel on a phone.
  */
 export function boardViewBox(board: Board, size = HEX_SIZE): ViewBox {
@@ -136,6 +139,24 @@ export function boardViewBox(board: Board, size = HEX_SIZE): ViewBox {
     minY: round(minY - margin),
     width: round(maxX - minX + 2 * margin),
     height: round(maxY - minY + 2 * margin),
+  };
+}
+
+/**
+ * Move a sprite anchored at `p` (extending `half` to each side, `top`..`bottom` vertically, in
+ * user units) just enough to keep it inside `vb`. Used for the pirate on a cropped rim hex.
+ */
+export function clampSprite(
+  p: Point,
+  vb: ViewBox,
+  half: number,
+  top: number,
+  bottom: number,
+): Point {
+  const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
+  return {
+    x: clamp(p.x, vb.minX + half, vb.minX + vb.width - half),
+    y: clamp(p.y, vb.minY - top, vb.minY + vb.height - bottom),
   };
 }
 

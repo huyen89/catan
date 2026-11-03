@@ -101,6 +101,15 @@ export function settingsPatch(
   return out;
 }
 
+/**
+ * The Open Seas scenario a room would play: its own setting, else the engine default for its
+ * seats. Mirrors shared's effectiveScenario; kept here because importing a value from
+ * @hexhaven/shared would pull zod into the main bundle (lobby.test.ts checks they agree).
+ */
+export function effectiveScenario(s: Pick<RoomSettings, 'scenario' | 'maxSeats'>): string {
+  return s.scenario ?? defaultScenarioFor('seafarers', s.maxSeats) ?? 'newShores';
+}
+
 /** Friendly text for a failed room:start (null = use the server's message). */
 export function startErrorText(code: string): string | null {
   switch (code) {

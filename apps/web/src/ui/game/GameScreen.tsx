@@ -123,14 +123,12 @@ export function GameScreen({ header, onLeave, chatDisabled }: GameScreenProps) {
     <div className="game">
       <header className="game-top">
         {header}
-        <div
-          className={`phase-banner ${prompt.tone}`}
-          data-testid="phase-banner"
-          role="status"
-          aria-live="polite"
-        >
-          {/* A multi-step mode (e.g. moving a ship) says what to click next instead. */}
-          <span>{hint ?? prompt.text}</span>
+        <div className={`phase-banner ${prompt.tone}`}>
+          {/* Only the prompt is announced; the controls next to it are not part of the live
+              region. A multi-step mode (e.g. moving a ship) says what to click next instead. */}
+          <span data-testid="phase-banner" role="status" aria-live="polite">
+            {hint ?? prompt.text}
+          </span>
           {hl.pieces.length > 1 && (
             <span className="piece-toggle" role="group" aria-label="Piece to place">
               {hl.pieces.map((p) => (

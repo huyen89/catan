@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_ROOM_SETTINGS, mergeRoomSettings, type RoomSettings } from '@hexhaven/shared';
 import {
+  DEFAULT_ROOM_SETTINGS,
+  effectiveScenario as sharedEffectiveScenario,
+  mergeRoomSettings,
+  type RoomSettings,
+} from '@hexhaven/shared';
+import {
+  effectiveScenario,
   effectiveVariant,
   rematchRole,
   scenarioName,
@@ -69,6 +75,14 @@ describe('Open Seas lobby settings', () => {
       numberMode: 'random',
     });
     expect(effectiveVariant({ variant: 'seafarers', maxSeats: 4 })).toBe('seafarers');
+  });
+
+  it('picks the same scenario as the server', () => {
+    for (const maxSeats of [3, 4, 5, 6])
+      for (const scenario of [undefined, 'newShores', 'archipelago', 'grandVoyage'] as const) {
+        const s = { maxSeats, ...(scenario && { scenario }) };
+        expect(effectiveScenario(s)).toBe(sharedEffectiveScenario(s));
+      }
   });
 
   it('explains a refused Open Seas start', () => {
