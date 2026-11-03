@@ -14,7 +14,14 @@ describe('end of turn (RULES.md#turn)', () => {
     s.turn.devPlayed = true;
     s.players[3]!.newDevCards = ['knight'];
     const { state, events } = expectOk(s, 3, { type: 'END_TURN' });
-    expect(state.turn).toEqual({ current: 0, number: 2, dice: null, devPlayed: false });
+    expect(state.turn).toEqual({
+      current: 0,
+      number: 2,
+      dice: null,
+      devPlayed: false,
+      shipMoved: false,
+      newShips: [],
+    });
     expect(state.phase).toEqual({ kind: 'preRoll' });
     expect(state.players[3]!.newDevCards).toEqual(['knight']);
     expect(events).toEqual([{ type: 'turnStarted', seat: 0, turn: 2 }]);

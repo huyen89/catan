@@ -28,40 +28,46 @@ const tokenless = (t: Terrain): boolean => t === 'desert' || t === 'sea';
  *   fit (anything but the 19-hex hexagon with the standard tokens) fall back to 'random'.
  * - Ports: 'fixed' shuffles the port types onto `layout.portSlots`; 'random' picks coastal edges
  *   with at least one free coastal edge between any two ports.
+ * - Fixed hexes (`layout.fixedHexes`, Open Seas scenarios) keep their terrain and token and take no
+ *   part in the shuffles above. [CONTRACT minimal support — GEN owns the real scenario generation.]
  */
 export function generateBoard(
   layout: LayoutDef,
   config: Pick<GameConfig, 'numberMode' | 'portMode'>,
   rng: RngState,
 ): Board {
+  const fixed = new Map((layout.fixedHexes ?? []).map((f) => [hexId(f.q, f.r), f]));
   const terrains = shuffle(rng, expandPool<Terrain>(layout.terrainPool));
-  if (terrains.length !== layout.hexes.length) {
+  if (terrains.length !== layout.hexes.length - fixed.size) {
     throw new Error(
-      `Layout ${layout.id}: ${terrains.length} terrains for ${layout.hexes.length} hexes`,
+      `Layout ${layout.id}: ${terrains.length} terrains for ${layout.hexes.length - fixed.size} hexes`,
     );
   }
-  const hexes: Hex[] = layout.hexes.map(({ q, r }, i) => ({
-    id: hexId(q, r),
-    q,
-    r,
-    terrain: terrains[i]!,
-    token: null,
-  }));
-  const landCount = hexes.filter((h) => !tokenless(h.terrain)).length;
+  let next = 0;
+  const hexes: Hex[] = layout.hexes.map(({ q, r }) => {
+    const id = hexId(q, r);
+    const f = fixed.get(id);
+    return f
+      ? { id, q, r, terrain: f.terrain, token: f.token ?? null }
+      : { id, q, r, terrain: terrains[next++]!, token: null };
+  });
+  // Pool hexes: everything the shuffles may touch.
+  const pool = hexes.filter((h) => !fixed.has(h.id));
+  const landCount = pool.filter((h) => !tokenless(h.terrain)).length;
   if (layout.tokenPool.length !== landCount) {
     throw new Error(
       `Layout ${layout.id}: ${layout.tokenPool.length} tokens for ${landCount} producing hexes`,
     );
   }
 
-  if (config.numberMode !== 'spiral' || !placeSpiralTokens(hexes, layout, rng)) {
-    placeTokens(hexes, layout, rng);
+  if (config.numberMode !== 'spiral' || fixed.size > 0 || !placeSpiralTokens(hexes, layout, rng)) {
+    placeTokens(pool, layout, rng);
   }
 
-  return { layoutId: layout.id, hexes, ports: placePorts(layout, config.portMode, rng) };
+  return { layoutId: layout.id, hexes, ports: placePorts(layout, hexes, config.portMode, rng) };
 }
 
-/** 'random' number mode: constrained placement over the producing hexes. */
+/** 'random' number mode: constrained placement over the producing (pool) hexes. */
 function placeTokens(hexes: Hex[], layout: LayoutDef, rng: RngState): void {
   const land = hexes.filter((h) => !tokenless(h.terrain));
   const slotOf = new Map<HexId, number>(land.map((h, i) => [h.id, i]));
@@ -91,8 +97,14 @@ function placeSpiralTokens(hexes: Hex[], layout: LayoutDef, rng: RngState): bool
   return true;
 }
 
-function placePorts(layout: LayoutDef, mode: GameConfig['portMode'], rng: RngState): Port[] {
-  const g = buildGraph(layout.hexes);
+function placePorts(
+  layout: LayoutDef,
+  hexes: readonly Hex[],
+  mode: GameConfig['portMode'],
+  rng: RngState,
+): Port[] {
+  // The generated hexes carry terrain, so on sea-framed boards this walks the land|sea coasts.
+  const g = buildGraph(hexes);
   const types = shuffle(rng, expandPool<PortType>(layout.portPool));
   const slots =
     mode === 'random'

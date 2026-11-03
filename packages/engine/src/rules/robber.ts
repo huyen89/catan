@@ -69,7 +69,9 @@ const discard: Handler<'DISCARD'> = (ctx, a) => {
   addResources(s.bank, cards);
   delete ph.pending[String(ctx.seat)];
   ctx.events.push({ type: 'discarded', seat: ctx.seat, resources: cards });
-  if (Object.keys(ph.pending).length === 0) s.phase = { kind: 'moveRobber', returnTo: 'main' };
+  if (Object.keys(ph.pending).length === 0) {
+    s.phase = { kind: 'moveRobber', returnTo: 'main', allowPirate: false };
+  }
 };
 
 const moveRobber: Handler<'MOVE_ROBBER'> = (ctx, a) => {
@@ -85,7 +87,7 @@ const moveRobber: Handler<'MOVE_ROBBER'> = (ctx, a) => {
   ctx.events.push({ type: 'robberMoved', seat: ctx.seat, hex: a.hex });
   const candidates = stealCandidates(s, ctx.graph, ctx.seat, a.hex);
   if (candidates.length > 1) {
-    s.phase = { kind: 'steal', candidates, returnTo: ph.returnTo };
+    s.phase = { kind: 'steal', candidates, returnTo: ph.returnTo, via: 'robber' };
     return;
   }
   if (candidates.length === 1) stealRandom(ctx, ctx.seat, candidates[0]!);

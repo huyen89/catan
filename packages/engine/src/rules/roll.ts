@@ -60,7 +60,7 @@ const roll: Handler<'ROLL'> = (ctx) => {
     s.phase = { kind: 'discard', pending };
     ctx.events.push({ type: 'discardRequired', pending: { ...pending } });
   } else {
-    s.phase = { kind: 'moveRobber', returnTo: 'main' };
+    s.phase = { kind: 'moveRobber', returnTo: 'main', allowPirate: false };
   }
 };
 

@@ -20,7 +20,7 @@ describe('dev cards (RULES.md#development-cards)', () => {
     const r = expectOk(s, 0, { type: 'PLAY_KNIGHT' });
     s = r.state;
     expect(r.events).toContainEqual({ type: 'playedDev', seat: 0, card: 'knight' });
-    expect(s.phase).toEqual({ kind: 'moveRobber', returnTo: 'preRoll' });
+    expect(s.phase).toEqual({ kind: 'moveRobber', returnTo: 'preRoll', allowPirate: false });
     expect(s.players[0]!.playedKnights).toBe(1);
     expect(s.players[0]!.devCards).toEqual([]);
     s = expectOk(s, 0, { type: 'MOVE_ROBBER', hex: '0,0' === s.robber ? '1,0' : '0,0' }).state;
@@ -32,7 +32,7 @@ describe('dev cards (RULES.md#development-cards)', () => {
     const s = withCards({ kind: 'main' }, ['knight']);
     s.players[0]!.playedKnights = 2;
     const { state, events } = expectOk(s, 0, { type: 'PLAY_KNIGHT' });
-    expect(state.phase).toEqual({ kind: 'moveRobber', returnTo: 'main' });
+    expect(state.phase).toEqual({ kind: 'moveRobber', returnTo: 'main', allowPirate: false });
     expect(state.largestArmy).toBe(0);
     expect(eventsOf(events, 'awardChanged')).toEqual([
       { type: 'awardChanged', award: 'largestArmy', holder: 0 },

@@ -37,8 +37,9 @@ export const isValidCounts = (r: unknown): r is ResourceCounts =>
     return typeof v === 'number' && Number.isInteger(v) && v >= 0;
   });
 
-export const COSTS: Record<'road' | 'settlement' | 'city' | 'devCard', ResourceCounts> = {
+export const COSTS: Record<'road' | 'settlement' | 'city' | 'devCard' | 'ship', ResourceCounts> = {
   road: resourcesOf({ brick: 1, lumber: 1 }),
+  ship: resourcesOf({ lumber: 1, wool: 1 }),
   settlement: resourcesOf({ brick: 1, lumber: 1, wool: 1, grain: 1 }),
   city: resourcesOf({ grain: 2, ore: 3 }),
   devCard: resourcesOf({ wool: 1, grain: 1, ore: 1 }),

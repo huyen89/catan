@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SCENARIO_IDS } from '@hexhaven/engine';
 
 export const PLAYER_COLORS = [
   '#d9480f',
@@ -15,8 +16,13 @@ export type BotDifficulty = z.infer<typeof botDifficultySchema>;
 export const roomSettingsSchema = z.strictObject({
   /** Number of seats at the table (3..6). */
   maxSeats: z.number().int().min(3).max(6),
-  /** 'auto' picks base for 3-4 and ext56 for 5-6. */
-  variant: z.enum(['auto', 'base', 'ext56']),
+  /** 'auto' picks base for 3-4 and ext56 for 5-6. 'seafarers' is Open Seas. */
+  variant: z.enum(['auto', 'base', 'ext56', 'seafarers']),
+  /**
+   * Open Seas scenario; only used with variant 'seafarers'. Absent = the engine's default for
+   * the seat count (defaultScenarioFor).
+   */
+  scenario: z.enum(SCENARIO_IDS).optional(),
   vpToWin: z.number().int().min(5).max(20),
   discardLimit: z.number().int().min(5).max(15),
   numberMode: z.enum(['random', 'spiral']),

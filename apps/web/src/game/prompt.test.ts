@@ -37,14 +37,17 @@ describe('phasePrompt', () => {
   });
 
   it('robber, steal, roll and road building', () => {
-    expect(phasePrompt(view({ kind: 'moveRobber', returnTo: 'main' }, 0), name).text).toBe(
-      'Move the robber',
-    );
+    expect(
+      phasePrompt(view({ kind: 'moveRobber', returnTo: 'main', allowPirate: false }, 0), name).text,
+    ).toBe('Move the robber');
     expect(phasePrompt(view({ kind: 'preRoll' }, 2, 1), name).text).toBe(
       'Waiting for Bruno to roll…',
     );
     expect(
-      phasePrompt(view({ kind: 'steal', candidates: [1], returnTo: 'main' }, 0), name).tone,
+      phasePrompt(
+        view({ kind: 'steal', candidates: [1], returnTo: 'main', via: 'robber' }, 0),
+        name,
+      ).tone,
     ).toBe('act');
     expect(phasePrompt(view({ kind: 'roadBuilding', remaining: 1 }, 0), name).text).toBe(
       'Place 1 free road',
@@ -82,7 +85,7 @@ describe('computeHighlights', () => {
     roadEdges: ['0,0,NE'],
     cityVertices: ['0,0,S'],
     robberHexes: ['1,0'],
-    canAfford: { road: true, settlement: true, city: false, devCard: false },
+    canAfford: { road: true, settlement: true, city: false, devCard: false, ship: false },
   };
   const withLegal = (phase: Phase, actions: LegalSummary['actions']) =>
     view(phase, 0, 0, { legal: { ...legal, actions }, pendingActors: [0] });
@@ -116,8 +119,10 @@ describe('computeHighlights', () => {
         .edges,
     ).toEqual(['0,0,NE']);
     expect(
-      computeHighlights(withLegal({ kind: 'moveRobber', returnTo: 'main' }, ['MOVE_ROBBER']), null)
-        .hexes,
+      computeHighlights(
+        withLegal({ kind: 'moveRobber', returnTo: 'main', allowPirate: false }, ['MOVE_ROBBER']),
+        null,
+      ).hexes,
     ).toEqual(['1,0']);
   });
 

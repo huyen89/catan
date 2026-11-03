@@ -39,18 +39,21 @@ In-product name: **Open Seas**. Variant id: `seafarers`. Original scenario names
 
 ### Types (`types.ts`)
 
-- `VariantId |= 'seafarers'`. `GameConfig.scenario?: string` names the scenario for seafarers and is ignored otherwise.
+- `VariantId |= 'seafarers'`. `GameConfig.scenario?: string` names the scenario for seafarers.
+  `normalizeConfig` fills it with `defaultScenarioFor(variant, players)` and, unless the caller set
+  `vpToWin`, uses the scenario's `defaultVpToWin`. For variants without scenarios it drops the field.
 - `Port` stays the same. Ports sit on land|sea edges.
 - New `GameState` fields, all initialised for every variant:
   - `ships: Record<EdgeId, Seat>`
   - `pirate: HexId | null`
-  - `islandBonus: Record<string, Seat[]>`: island index → seats that already got the bonus.
+  - `islandBonus: Record<string, Seat[]>`: island index (`BoardGraph.islandOf`, as a string key) →
+    seats that already got the bonus.
 - `TurnState` gains:
   - `shipMoved: boolean`
   - `newShips: EdgeId[]`: ships placed this turn. They can't be moved.
 - `PlayerState` gains:
   - `shipsLeft: number`
-  - `bonusVP: number`: island bonuses. Public.
+  - `bonusVP: number`: island bonuses. Public, and counted in `publicVP`.
 - `Phase`:
   - `moveRobber` gains `allowPirate: boolean`.
   - `steal` gains `via: 'robber' | 'pirate'`.
@@ -61,11 +64,12 @@ In-product name: **Open Seas**. Variant id: `seafarers`. Original scenario names
   - `MOVE_SHIP {from, to}`
   - `MOVE_PIRATE {hex}`
   - `CHOOSE_GOLD {resources}`
-- `GameEvent`:
-  - `built.kind`, `setupPlaced.kind` and `awardChanged` widen to allow `'ship'`
-  - `shipMoved`
-  - `pirateMoved`
-  - `goldChosen`
+- `GameEvent` (all public):
+  - `built.kind` and `setupPlaced.kind` widen to allow `'ship'`. `awardChanged` is unchanged: in
+    seafarers the `longestRoad` award is the longest trade route.
+  - `shipMoved {seat, from, to}`
+  - `pirateMoved {seat, hex}`
+  - `goldChosen {seat, resources}`
   - `islandBonus {seat, island, vp}`
   - `produced` may include `gold: Record<string, number>`: pending gold choices per seat
 - `LegalSummary`:
@@ -73,31 +77,50 @@ In-product name: **Open Seas**. Variant id: `seafarers`. Original scenario names
   - `shipMoves: Record<EdgeId, EdgeId[]>`
   - `pirateHexes: HexId[]`
   - `goldCount: number`
-  - `canAfford.ship`
+  - `canAfford.ship` (affordability only, like the other `canAfford` flags)
 - `PublicPlayer`: `shipsLeft`, `bonusVP`.
 - `PlayerView`: `ships`, `pirate`, `islandBonus`.
 - `COSTS.ship = { lumber: 1, wool: 1 }`.
 
 ### Layouts and variants
 
-- `LayoutDef` gains optional `fixedHexes?: Array<{q, r, terrain, token?}>`. These hexes keep their terrain and token, and are excluded from `terrainPool` and `tokenPool`. All other fields are unchanged: pools cover the remaining hexes.
-- Also new on `LayoutDef`:
+- `LayoutDef` gains optional `fixedHexes?: FixedHex[]` (`{q, r, terrain, token?}`). These hexes keep their terrain and token, and are excluded from `terrainPool` and `tokenPool`. A fixed producing hex (gold included) must carry its token. All other fields are unchanged: pools cover the remaining hexes. `layout.hexes` lists every hex, sea included.
+- Also new on `LayoutDef` (all optional; base/ext56 set none):
+  - `name?: string`: display name for the lobby.
   - `homeHexes?: HexId[]`: islands that contain any of these are home islands.
-  - `robberStart?: HexId`, `pirateStart?: HexId`
+  - `robberStart?: HexId` (default: first desert, else first land hex), `pirateStart?: HexId` (absent = `pirate: null`)
   - `islandBonusVP?: number`, `defaultVpToWin?: number`
+  - `minPlayers?`, `maxPlayers?`: the scenario's player range.
+  - `devDeck?`, `bankPerResource?`, `specialBuildPhase?`: supply overrides (the 5–6 player scenario uses the ext56 deck, a bank of 24 and the special build phase).
 - `VariantDef` gains:
-  - `ships: number`, which is 0 for base and ext56
+  - `ships: number`, which is 0 for base and ext56 (15 for seafarers)
   - `scenarios?: Record<string, LayoutDef>` and `defaultScenario?: string`
-- Scenarios:
-  - **`newShores`** (3–4 players): a main island plus 3–4 small islands, 14 VP.
-  - **`archipelago`** (3–4 players): four mid-size islands, all home, plus a gold islet.
-  - **`grandVoyage`** (5–6 players): a larger frame with special build.
+- `variantFor(config)` returns the effective `VariantDef`: for seafarers the scenario's layout,
+  player range and supply overrides are applied. `createGame` and `ctx.variant` use it; for base
+  and ext56 it is `VARIANTS[variant]` itself. `defaultScenarioFor(variant, players)` picks the
+  default scenario if it fits the player count, else the first one that does.
+- `SCENARIOS`, `SCENARIO_IDS` and `ScenarioId` are exported. The shared `roomSettings.scenario`
+  enum is built from `SCENARIO_IDS`.
+- Scenarios (maps are ASCII in `board/layouts.ts`; sea, desert and gold hexes are fixed, the other
+  land hexes draw from the pools):
+  - **`newShores`** "New Shores" (3–4 players): a 19-hex home island and 3 small islands (2, 3 and
+    2 hexes, one gold), 14 VP. The robber starts on the fixed desert.
+  - **`archipelago`** "Archipelago" (3–4 players): four 5-hex home islands around a 1-hex gold islet,
+    13 VP. No desert: the robber starts on the gold islet.
+  - **`grandVoyage`** "Grand Voyage" (5–6 players): a 27-hex home island and 4 islets (one gold),
+    14 VP, ext56 deck and bank, special build phase.
 - `BoardGraph` gains:
   - `landHexes: HexId[]`
   - `islandOf: Record<HexId, number>`
   - `landVertices: VertexId[]`, `roadEdges: EdgeId[]`, `seaEdges: EdgeId[]`
-  - Existing boards have no sea hexes, so these sets equal the full vertex and edge sets and base behaviour is unchanged. For a sea-framed board, `coastEdges` is the land|sea edges in walk order.
-- `ENGINE_VERSION` bump. `upgradeState(state)` fills the new fields with defaults on old snapshots, and the server calls it on load.
+  - `seaEdges` are edges between two hexes with at least one sea hex (the outer rim is excluded).
+  - Islands are numbered in order of their first hex in `landHexes` (board order).
+  - Existing boards have no sea hexes, so `landHexes`, `landVertices` and `roadEdges` equal the full sets, `seaEdges` is empty, and base behaviour is unchanged.
+  - `coastEdges` is the edges touching exactly one land hex. On a sea-framed board these are the land|sea edges. The walk covers each coastline as one closed cycle, and the cycles follow one another.
+- `buildGraph(hexes)` and `graphFor(board)` read each hex's optional `terrain`. Only sea vs land matters, and a hex without terrain is land. The memo key includes the sea pattern.
+- `generateBoard` supports `fixedHexes` (minimal support in the contract PR) and builds the port graph from the generated hexes. The spiral number mode is skipped for layouts with fixed hexes.
+- `ENGINE_VERSION` is now 2. `upgradeState(state)` fills the new fields with defaults on old snapshots and sets `engineVersion`; it is pure and idempotent, and the server calls it on load (`recoverGameState`).
+- The new actions are registered in `rules/seafarers.ts` as `NOT_IMPLEMENTED` stubs. Until ENG implements them, every phase constructor sets `allowPirate: false` and `via: 'robber'`.
 
 ## Workstreams after the contract merges
 

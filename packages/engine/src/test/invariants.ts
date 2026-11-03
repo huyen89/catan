@@ -3,7 +3,7 @@ import { graphFor } from '../hex/topology';
 import { longestTrail } from '../rules/awards';
 import { totalVP } from '../rules/victory';
 import { RESOURCES, type GameState } from '../types';
-import { VARIANTS } from '../variants';
+import { variantFor } from '../variants';
 
 const isCount = (n: unknown): boolean => typeof n === 'number' && Number.isInteger(n) && n >= 0;
 
@@ -17,7 +17,7 @@ export function violations(s: GameState): string[] {
   const check = (ok: boolean, msg: string) => {
     if (!ok) out.push(msg);
   };
-  const variant = VARIANTS[s.config.variant];
+  const variant = variantFor(s.config);
   const n = s.players.length;
   const isSeat = (x: unknown) => typeof x === 'number' && Number.isInteger(x) && x >= 0 && x < n;
 

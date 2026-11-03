@@ -1,6 +1,6 @@
 import type { GameState, Seat } from '../types';
 
-/** VP visible to everyone: buildings + awards. */
+/** VP visible to everyone: buildings + awards + island bonuses. */
 export function publicVP(state: GameState, seat: Seat): number {
   let vp = 0;
   for (const b of Object.values(state.buildings)) {
@@ -8,7 +8,7 @@ export function publicVP(state: GameState, seat: Seat): number {
   }
   if (state.longestRoad === seat) vp += 2;
   if (state.largestArmy === seat) vp += 2;
-  return vp;
+  return vp + state.players[seat]!.bonusVP;
 }
 
 /** Hidden VP cards (counted whether bought this turn or earlier). */

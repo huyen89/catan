@@ -201,6 +201,31 @@ describe('lobby', () => {
     });
   });
 
+  it('passes the Open Seas scenario to the engine only for the seafarers variant', async () => {
+    srv = await startServer();
+    const host = await player(srv.url, 'Host');
+    await ok(host.socket, 'room:create', {
+      settings: { maxSeats: 3, variant: 'seafarers', scenario: 'archipelago' },
+    });
+    for (const seat of [1, 2]) await ok(host.socket, 'room:addBot', { seat, difficulty: 'easy' });
+    const started = next(host.socket, 'game:state');
+    await ok(host.socket, 'room:start', {});
+    expect((await started).view.config).toMatchObject({
+      players: 3,
+      variant: 'seafarers',
+      scenario: 'archipelago',
+    });
+
+    const other = await player(srv.url, 'Other');
+    await ok(other.socket, 'room:create', {
+      settings: { maxSeats: 3, variant: 'base', scenario: 'archipelago' },
+    });
+    for (const seat of [1, 2]) await ok(other.socket, 'room:addBot', { seat, difficulty: 'easy' });
+    const plain = next(other.socket, 'game:state');
+    await ok(other.socket, 'room:start', {});
+    expect(Object.keys((await plain).view.config)).not.toContain('scenario');
+  });
+
   it('passes host to the next human when the host leaves; kicked users cannot rejoin', async () => {
     srv = await startServer();
     const host = await player(srv.url, 'Host');

@@ -345,6 +345,8 @@ export class Room {
       // The official spiral exists only for the base board.
       numberMode: resolved === 'base' ? this.settings.numberMode : 'random',
       portMode: this.settings.portMode,
+      // Open Seas only; undefined lets the engine pick the default for the seat count.
+      ...(resolved === 'seafarers' && { scenario: this.settings.scenario }),
     };
   }
 }
