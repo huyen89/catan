@@ -6,7 +6,8 @@ import {
   type PlayerView,
   type ResourceCounts,
 } from '@hexhaven/engine';
-import { canDo, type BuildMode } from '../../game/highlights';
+import { canDo, movableShips, type BuildMode } from '../../game/highlights';
+import { hasShips } from '../../game/prompt';
 import { DEV_HELP, DEV_LABEL, RESOURCE_LABEL } from '../../game/labels';
 import { useGameStore } from '../../store/game';
 import { Die, ResourceIcon } from '../icons';
@@ -92,8 +93,16 @@ export function DevCards(props: { view: PlayerView; busy: boolean; onPick(p: Dev
   );
 }
 
-const BUILDS: Array<{ mode: BuildMode; testId: string; label: string; cost: ResourceCounts }> = [
+const BUILDS: Array<{
+  mode: BuildMode;
+  testId: string;
+  label: string;
+  cost: ResourceCounts;
+  /** Only in variants with ships. */
+  seas?: true;
+}> = [
   { mode: 'buildRoad', testId: 'build-road', label: 'Road', cost: COSTS.road },
+  { mode: 'buildShip', testId: 'build-ship', label: 'Ship', cost: COSTS.ship, seas: true },
   {
     mode: 'buildSettlement',
     testId: 'build-settlement',
@@ -107,8 +116,14 @@ const BUILD_ACTION = {
   buildRoad: 'BUILD_ROAD',
   buildSettlement: 'BUILD_SETTLEMENT',
   buildCity: 'BUILD_CITY',
+  buildShip: 'BUILD_SHIP',
 } as const;
-const AFFORD_KEY = { buildRoad: 'road', buildSettlement: 'settlement', buildCity: 'city' } as const;
+const AFFORD_KEY = {
+  buildRoad: 'road',
+  buildSettlement: 'settlement',
+  buildCity: 'city',
+  buildShip: 'ship',
+} as const;
 
 export function BuildBar({ view, busy }: { view: PlayerView; busy: boolean }) {
   const mode = useGameStore((s) => s.mode);
@@ -117,10 +132,13 @@ export function BuildBar({ view, busy }: { view: PlayerView; busy: boolean }) {
   const legal = view.legal;
   if (!legal) return null;
   const canBuy = canDo(view, 'BUY_DEV') && legal.canAfford.devCard;
+  const seas = hasShips(view);
+  const moving = mode === 'moveShip';
+  const canMove = canDo(view, 'MOVE_SHIP') && movableShips(view).length > 0;
 
   return (
     <section className="buildbar" aria-label="Build">
-      {BUILDS.map((b) => {
+      {BUILDS.filter((b) => seas || !b.seas).map((b) => {
         const enabled = canDo(view, BUILD_ACTION[b.mode]) && legal.canAfford[AFFORD_KEY[b.mode]];
         const on = mode === b.mode;
         return (
@@ -152,6 +170,21 @@ export function BuildBar({ view, busy }: { view: PlayerView; busy: boolean }) {
         <span>Dev card</span>
         <Cost cost={COSTS.devCard} />
       </button>
+      {seas && (
+        <button
+          type="button"
+          className={moving ? 'build on' : 'build'}
+          data-testid="move-ship"
+          aria-pressed={moving}
+          aria-label={moving ? 'Cancel moving a ship' : 'Move a ship'}
+          title="Once per turn: move a ship at the open end of a shipping line"
+          disabled={busy || (!canMove && !moving)}
+          onClick={() => setMode(moving ? null : 'moveShip')}
+        >
+          <span>Move ship</span>
+          <span className="cost muted small">free</span>
+        </button>
+      )}
     </section>
   );
 }

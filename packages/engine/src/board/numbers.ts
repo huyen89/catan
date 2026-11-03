@@ -11,29 +11,61 @@ export const isRedToken = (n: number): boolean => n === 6 || n === 8;
 const STRICT_ATTEMPTS = 50;
 const STRICT_NODE_BUDGET = 80;
 
+/** Extra per-slot constraints for {@link placeRandomTokens}. Omitted = none (base boards). */
+export interface SlotRules {
+  /**
+   * Tokens already on the board next to each slot (hexes outside the placement, e.g. a scenario's
+   * fixed gold hex). They count as neighbours for both the 6/8 and the equal-number rule.
+   */
+  fixedNeighbors?: ReadonlyArray<readonly number[]>;
+  /** Slots that should not get a 6/8 when achievable (gold hexes). */
+  avoidRed?: readonly boolean[];
+}
+
 /**
  * Place a multiset of number tokens onto `neighbors.length` slots (slot adjacency given as index
  * lists). Mutates `rng`; always terminates and returns tokens[slot].
  *
- * 1. Strict: no adjacent 6/8 and no adjacent identical numbers. Randomized backtracking with a node
- *    budget per attempt and a fixed number of attempts.
- * 2. Relaxed (strict failed): only no adjacent 6/8. Exhaustive search for an independent set of
- *    slots for the red tokens; the rest are shuffled onto the remaining slots.
- * 3. If even that is impossible (degenerate layouts only), an unconstrained shuffle.
+ * 1. Strict: no adjacent 6/8, no adjacent identical numbers and no 6/8 on an `avoidRed` slot.
+ *    Randomized backtracking with a node budget per attempt and a fixed number of attempts.
+ * 2. Relaxed (strict failed): only no adjacent 6/8 and no 6/8 on an `avoidRed` slot. Exhaustive
+ *    search for an independent set of slots for the red tokens; the rest are shuffled onto the
+ *    remaining slots.
+ * 3. As 2, but 6/8 may go on `avoidRed` slots (only tried when some slot avoids red).
+ * 4. If even that is impossible (degenerate layouts only), an unconstrained shuffle.
+ *
+ * Fixed neighbours count as adjacent in steps 1-3: a slot next to a fixed 6/8 takes no 6/8.
+ *
+ * The fallbacks are coarse on purpose: each step drops a soft rule outright rather than
+ * minimising its violations. Once step 1 fails, equal neighbours (including equal fixed
+ * neighbours) are not avoided at all, and in step 3 any number of 6/8 may go on gold. On the
+ * shipped layouts step 1 always succeeds (the property tests assert zero equal neighbours and no
+ * 6/8 on gold over thousands of seeds), so the fallbacks only guarantee termination on degenerate
+ * layouts. Making them finer would change the RNG draws of seeds that reach them.
+ * Without rules the RNG draws are exactly those of the rule-less algorithm (base boards unchanged).
  */
 export function placeRandomTokens(
   neighbors: ReadonlyArray<readonly number[]>,
   tokens: readonly number[],
   rng: RngState,
+  rules: SlotRules = {},
 ): number[] {
   if (tokens.length !== neighbors.length) {
     throw new Error(`placeRandomTokens: ${tokens.length} tokens for ${neighbors.length} slots`);
   }
+  const fixedOf = (slot: number): readonly number[] => rules.fixedNeighbors?.[slot] ?? [];
+  const nearFixedRed = neighbors.map((_, slot) => fixedOf(slot).some(isRedToken));
+  const noRed = nearFixedRed.map((near, slot) => near || rules.avoidRed?.[slot] === true);
+
   for (let attempt = 0; attempt < STRICT_ATTEMPTS; attempt++) {
-    const placed = searchStrict(neighbors, tokens, rng);
+    const placed = searchStrict(neighbors, tokens, rng, fixedOf, noRed);
     if (placed) return placed;
   }
-  return placeRedsApart(neighbors, tokens, rng) ?? shuffle(rng, tokens);
+  return (
+    placeRedsApart(neighbors, tokens, rng, noRed) ??
+    (rules.avoidRed?.some(Boolean) ? placeRedsApart(neighbors, tokens, rng, nearFixedRed) : null) ??
+    shuffle(rng, tokens)
+  );
 }
 
 const strictConflict = (a: number, b: number): boolean =>
@@ -63,6 +95,8 @@ function searchStrict(
   neighbors: ReadonlyArray<readonly number[]>,
   tokens: readonly number[],
   rng: RngState,
+  fixedOf: (slot: number) => readonly number[],
+  noRed: readonly boolean[],
 ): number[] | null {
   const n = neighbors.length;
   const order = shuffle(
@@ -80,10 +114,13 @@ function searchStrict(
     if (++nodes > STRICT_NODE_BUDGET) return false;
     const slot = order[k]!;
     for (const value of weightedOrder(rng, counts)) {
-      const clash = neighbors[slot]!.some((j) => {
-        const other = assigned[j];
-        return other !== undefined && strictConflict(value, other);
-      });
+      const clash =
+        (noRed[slot]! && isRedToken(value)) ||
+        fixedOf(slot).some((other) => strictConflict(value, other)) ||
+        neighbors[slot]!.some((j) => {
+          const other = assigned[j];
+          return other !== undefined && strictConflict(value, other);
+        });
       if (clash) continue;
       assigned[slot] = value;
       counts.set(value, counts.get(value)! - 1);
@@ -99,13 +136,15 @@ function searchStrict(
 }
 
 /**
- * Relaxed placement: put the red tokens on pairwise non-adjacent slots (exhaustive search over a
- * random slot order, so it terminates and finds a solution whenever one exists), shuffle the rest.
+ * Relaxed placement: put the red tokens on pairwise non-adjacent slots outside `noRed` (exhaustive
+ * search over a random slot order, so it terminates and finds a solution whenever one exists),
+ * shuffle the rest.
  */
 function placeRedsApart(
   neighbors: ReadonlyArray<readonly number[]>,
   tokens: readonly number[],
   rng: RngState,
+  noRed: readonly boolean[],
 ): number[] | null {
   const n = neighbors.length;
   const reds = shuffle(rng, tokens.filter(isRedToken));
@@ -124,7 +163,7 @@ function placeRedsApart(
     if (chosen.length === reds.length) return true;
     for (let i = from; i <= n - (reds.length - chosen.length); i++) {
       const slot = order[i]!;
-      if (blocked[slot]! > 0) continue;
+      if (blocked[slot]! > 0 || noRed[slot]) continue;
       chosen.push(slot);
       blocked[slot]!++;
       for (const j of neighbors[slot]!) blocked[j]!++;

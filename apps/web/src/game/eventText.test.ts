@@ -94,6 +94,19 @@ const cases: Array<[GameEvent, string]> = [
   [{ type: 'turnStarted', seat: 3, turn: 12 }, 'Turn 12: Dana'],
   [{ type: 'specialBuildTurn', seat: 2 }, 'Chen may build (special build phase)'],
   [{ type: 'gameOver', winner: 1, vp: [7, 10, 4, 5] }, 'Bruno wins with 10 points!'],
+  // Open Seas
+  [{ type: 'setupPlaced', seat: 2, kind: 'ship', at: '1,0,W' }, 'Chen placed a ship'],
+  [{ type: 'built', seat: 0, kind: 'ship', at: '1,0,W' }, 'Alice built a ship'],
+  [{ type: 'shipMoved', seat: 1, from: '1,0,W', to: '2,0,W' }, 'Bruno moved a ship'],
+  [{ type: 'pirateMoved', seat: 3, hex: '0,0' }, 'Dana moved the pirate to Forest (8)'],
+  [
+    { type: 'goldChosen', seat: 0, resources: r({ ore: 1, grain: 1 }) },
+    'Alice took 1 grain, 1 ore from gold',
+  ],
+  [
+    { type: 'islandBonus', seat: 2, island: 3, vp: 2 },
+    'Chen settled a new island: +2 victory points',
+  ],
 ];
 
 describe('eventText', () => {
@@ -103,12 +116,37 @@ describe('eventText', () => {
 
   it('covers every GameEvent type', () => {
     const types = new Set(cases.map(([e]) => e.type));
-    expect(types.size).toBe(22);
+    expect(types.size).toBe(26);
+  });
+
+  it('mentions gold still to choose after production and setup', () => {
+    expect(
+      eventText(
+        { type: 'produced', gains: { '0': r({ grain: 1 }) }, gold: { '0': 1, '2': 2 } },
+        ctx,
+      ),
+    ).toBe('Alice got 1 grain; Alice picks 1 resource from gold; Chen picks 2 resources from gold');
+    expect(
+      eventText({ type: 'setupResources', seat: 1, resources: r({ ore: 1 }), gold: 1 }, ctx),
+    ).toBe('Bruno received 1 ore and 1 gold pick');
+    expect(eventText({ type: 'setupResources', seat: 1, resources: r({}), gold: 2 }, ctx)).toBe(
+      'Bruno received 2 gold picks',
+    );
+  });
+
+  it('calls the longest road the longest trade route with ships', () => {
+    const e: GameEvent = { type: 'awardChanged', award: 'longestRoad', holder: 0 };
+    expect(eventText(e, { ...ctx, variant: 'seafarers' })).toBe(
+      'Alice now holds Longest Trade Route',
+    );
+    expect(eventText(e, { ...ctx, variant: 'base' })).toBe('Alice now holds Longest Road');
   });
 
   it('picks the acting seat for colouring', () => {
     expect(eventSeat({ type: 'stole', thief: 2, victim: 0, resource: null })).toBe(2);
     expect(eventSeat({ type: 'tradeCancelled', offerId: 1 })).toBeNull();
     expect(eventSeat({ type: 'produced', gains: {} })).toBeNull();
+    expect(eventSeat({ type: 'pirateMoved', seat: 3, hex: '0,0' })).toBe(3);
+    expect(eventSeat({ type: 'islandBonus', seat: 1, island: 2, vp: 2 })).toBe(1);
   });
 });

@@ -44,6 +44,23 @@ function fixture(maxSteps = 400): { replay: ReplayResponse; states: GameState[] 
 describe('ReplayTimeline', () => {
   const { replay, states } = fixture();
 
+  it('rebuilds an Open Seas game: sea board, pirate and scenario config', () => {
+    const config = normalizeConfig({ players: 4, variant: 'seafarers', scenario: 'archipelago' });
+    const tl = new ReplayTimeline({
+      ...replay,
+      summary: { ...replay.summary, variant: 'seafarers', status: 'abandoned', winner: null },
+      config,
+      actions: [],
+    });
+    expect(tl.failure).toBeNull();
+    expect(tl.board.hexes.some((h) => h.terrain === 'sea')).toBe(true);
+    const view = replayView(tl.stateAt(0), tl.board);
+    expect(view.config.scenario).toBe('archipelago');
+    expect(view.pirate).not.toBeNull();
+    expect(view.ships).toEqual({});
+    expect(view.players.every((p) => p.shipsLeft === 15 && p.bonusVP === 0)).toBe(true);
+  });
+
   it('rebuilds every recorded state, in any access order', () => {
     const tl = new ReplayTimeline(replay, 8);
     expect(tl.length).toBe(replay.actions.length + 1);

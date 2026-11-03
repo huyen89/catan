@@ -10,14 +10,27 @@ export interface FixedHex {
   token?: number;
 }
 
+/**
+ * A region of pool hexes with its own pools (e.g. the small islands of a scenario, so their gold
+ * cannot land on the home island). Shuffled and numbered separately from the global pools.
+ */
+export interface RegionPool {
+  /** Pool hexes of this region (never fixed hexes, never in another region). */
+  hexes: readonly HexId[];
+  /** Terrains (multiset) for exactly these hexes. */
+  terrainPool: Readonly<Partial<Record<Terrain, number>>>;
+  /** Number tokens. Length = region hexes that are neither desert nor sea. */
+  tokenPool: readonly number[];
+}
+
 /** Static description of a board shape and its component pools. Scenarios are data. */
 export interface LayoutDef {
   id: string;
   /** Every hex of the board, sea included. */
   hexes: ReadonlyArray<{ q: number; r: number }>;
-  /** Terrains (multiset) for the hexes NOT listed in `fixedHexes`. */
+  /** Terrains (multiset) for the hexes in neither `fixedHexes` nor a `regionPools` region. */
   terrainPool: Readonly<Partial<Record<Terrain, number>>>;
-  /** Number tokens (multiset). Length = pool hexes that are neither desert nor sea. */
+  /** Number tokens (multiset). Length = those hexes that are neither desert nor sea. */
   tokenPool: readonly number[];
   /** Port types (multiset). Length = number of port slots. */
   portPool: Readonly<Partial<Record<PortType, number>>>;
@@ -30,6 +43,8 @@ export interface LayoutDef {
   name?: string;
   /** Hexes with a fixed terrain and token; excluded from `terrainPool` and `tokenPool`. */
   fixedHexes?: readonly FixedHex[];
+  /** Pool hexes with their own pools; excluded from `terrainPool` and `tokenPool`. */
+  regionPools?: readonly RegionPool[];
   /** Islands (land components) containing any of these hexes are home islands (setup only there). */
   homeHexes?: readonly HexId[];
   /** Robber start; defaults to the first desert, else the first land hex. */
@@ -107,6 +122,7 @@ export const DEV_DECKS: Record<'base' | 'ext56', Record<DevCardType, number>> = 
  * odd rows are offset half a hex to the right ("odd-r"), and the middle row's middle hex is 0,0.
  *   `~` sea (fixed)            `P` sea, pirate start
  *   `.` land from the pools    `h` land from the pools, marks its island as a home island
+ *   `1`-`9` land from that region's pools (`regions[digit]`, becomes a `regionPools` entry)
  *   `D` fixed desert (the first one is the robber start)
  *   `G` fixed gold; tokens come from `goldTokens` in reading order (the first G is the robber
  *       start when there is no desert)
@@ -114,12 +130,17 @@ export const DEV_DECKS: Record<'base' | 'ext56', Record<DevCardType, number>> = 
 function seaMap(
   rows: readonly string[],
   goldTokens: readonly number[],
-): Pick<LayoutDef, 'hexes' | 'fixedHexes' | 'homeHexes' | 'robberStart' | 'pirateStart'> {
+  regions: Readonly<Record<string, Omit<RegionPool, 'hexes'>>> = {},
+): Pick<
+  LayoutDef,
+  'hexes' | 'fixedHexes' | 'regionPools' | 'homeHexes' | 'robberStart' | 'pirateStart'
+> {
   const mid = Math.floor(rows.length / 2);
   const q0 = Math.floor(rows[mid]!.length / 2) - (mid - (mid & 1)) / 2;
   const hexes: Array<{ q: number; r: number }> = [];
   const fixedHexes: FixedHex[] = [];
   const homeHexes: HexId[] = [];
+  const regionHexes = new Map<string, HexId[]>();
   let desert: HexId | undefined;
   let gold: HexId | undefined;
   let pirateStart: HexId | undefined;
@@ -133,6 +154,10 @@ function seaMap(
       if (ch === '~' || ch === 'P') fixedHexes.push({ q, r, terrain: 'sea' });
       if (ch === 'P') pirateStart = id;
       if (ch === 'h') homeHexes.push(id);
+      if (ch >= '1' && ch <= '9') {
+        if (!regions[ch]) throw new Error(`seaMap: no pools for region ${ch}`);
+        regionHexes.set(ch, [...(regionHexes.get(ch) ?? []), id]);
+      }
       if (ch === 'D') {
         fixedHexes.push({ q, r, terrain: 'desert' });
         desert ??= id;
@@ -146,15 +171,29 @@ function seaMap(
     }),
   );
   if (g !== goldTokens.length) throw new Error('seaMap: unused gold tokens');
+  const keys = Object.keys(regions).sort();
+  for (const k of keys) if (!regionHexes.has(k)) throw new Error(`seaMap: region ${k} unused`);
   const robberStart = desert ?? gold;
   return {
     hexes,
     fixedHexes,
+    ...(keys.length > 0 && {
+      regionPools: keys.map((k) => ({ hexes: regionHexes.get(k)!, ...regions[k]! })),
+    }),
     homeHexes,
     ...(robberStart !== undefined && { robberStart }),
     ...(pirateStart !== undefined && { pirateStart }),
   };
 }
+
+/**
+ * The outer islands of New Shores and Grand Voyage: one of each terrain plus the pool gold (so
+ * the pool gold never lands on the home island), with middling numbers only.
+ */
+const OUTER_ISLANDS: Omit<RegionPool, 'hexes'> = {
+  terrainPool: { forest: 1, pasture: 1, fields: 1, hills: 1, mountains: 1, gold: 1 },
+  tokenPool: [3, 4, 5, 9, 10, 11],
+};
 
 /** 3-4 players: one large home island, three small islands to the east (one with gold). */
 export const NEW_SHORES_LAYOUT: LayoutDef = {
@@ -163,19 +202,22 @@ export const NEW_SHORES_LAYOUT: LayoutDef = {
   ...seaMap(
     [
       '~~~~~~~~~~~~',
-      '~~...~~~..~~',
+      '~~...~~~11~~',
       '~....~~P~~~~',
-      '~..D.h~~~~.~',
-      '~....~~~~G.~',
-      '~~...~..~~~~',
+      '~..D.h~~~~1~',
+      '~....~~~~G1~',
+      '~~...~11~~~~',
       '~~~~~~~~~~~~',
     ],
     [4],
+    { 1: OUTER_ISLANDS },
   ),
-  terrainPool: { forest: 5, pasture: 5, fields: 5, hills: 4, mountains: 4, gold: 1 },
-  tokenPool: [2, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 8, 8, 9, 9, 9, 10, 10, 10, 11, 11, 11, 12],
+  // The home island's 18 pool hexes.
+  terrainPool: { forest: 4, pasture: 4, fields: 4, hills: 3, mountains: 3 },
+  tokenPool: [2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12],
   portPool: { any: 4, brick: 1, lumber: 1, wool: 1, grain: 1, ore: 1 },
-  portSlots: evenSlots(72, 9),
+  // The home island's coastline is coastEdges[0..38).
+  portSlots: evenSlots(38, 9),
   islandBonusVP: 2,
   defaultVpToWin: 14,
   minPlayers: 3,
@@ -196,12 +238,14 @@ export const ARCHIPELAGO_LAYOUT: LayoutDef = {
       '~...~~~...~',
       '~~~~~~~~~~~',
     ],
-    [6],
+    [4],
   ),
   terrainPool: { forest: 4, pasture: 4, fields: 4, hills: 4, mountains: 4 },
   tokenPool: [2, 3, 3, 4, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 10, 11, 11, 12],
   portPool: { any: 3, brick: 1, lumber: 1, wool: 1, grain: 1, ore: 1 },
-  portSlots: evenSlots(70, 8),
+  // Two per home island. Coastlines in coastEdges: a home island at 0..16, the gold islet at
+  // 16..22, then the other home islands at 22..38, 38..54 and 54..70.
+  portSlots: [0, 8, 22, 30, 38, 46, 54, 62],
   islandBonusVP: 2,
   defaultVpToWin: 13,
   minPlayers: 3,
@@ -215,22 +259,22 @@ export const GRAND_VOYAGE_LAYOUT: LayoutDef = {
   ...seaMap(
     [
       '~~~~~~~~~~~~~~',
-      '~~....~~~..~~~',
-      '~......~~~~~.~',
-      '~...D.h.~P~~.~',
+      '~~....~~~11~~~',
+      '~......~~~~~1~',
+      '~...D.h.~P~~1~',
       '~......~~~~~~~',
-      '~~....~~~.G~.~',
+      '~~....~~~1G~1~',
       '~~~~~~~~~~~~~~',
     ],
     [4],
+    { 1: OUTER_ISLANDS },
   ),
-  terrainPool: { forest: 7, pasture: 7, fields: 7, hills: 5, mountains: 5, gold: 1 },
-  tokenPool: [
-    2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 6, 6, 6, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10, 10, 11, 11, 11,
-    12, 12,
-  ],
+  // The home island's 26 pool hexes.
+  terrainPool: { forest: 6, pasture: 6, fields: 6, hills: 4, mountains: 4 },
+  tokenPool: [2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 6, 6, 6, 8, 8, 8, 9, 9, 9, 10, 10, 10, 11, 11, 12, 12],
   portPool: { any: 5, wool: 2, brick: 1, lumber: 1, grain: 1, ore: 1 },
-  portSlots: evenSlots(78, 11),
+  // The home island's coastline is coastEdges[0..42).
+  portSlots: evenSlots(42, 11),
   islandBonusVP: 2,
   defaultVpToWin: 14,
   minPlayers: 5,

@@ -7,6 +7,7 @@ import { COSTS, resourcesOf, totalResources } from '../resources';
 import { seedRng } from '../rng';
 import { eventsOf, expectOk, expectRejected } from '../test/expect';
 import {
+  ctxFor,
   give,
   inPhase,
   newGame,
@@ -19,7 +20,7 @@ import {
 } from '../test/fixtures';
 import type { EdgeId, GameState, HexId, Seat, VertexId } from '../types';
 import { toPlayerView } from '../view';
-import { longestTrail } from './awards';
+import { longestTrail, updateLongestRoad } from './awards';
 import { isLandVertex, islandOfVertex, isRoadEdge, isShipEdge } from './placement';
 import { publicVP } from './victory';
 
@@ -795,6 +796,23 @@ describe('longest trade route', () => {
     // An opponent's building at the junction cuts it.
     s.buildings[v] = { owner: 1, kind: 'settlement' };
     expect(longestTrail(s, G, 0)).toBe(3);
+  });
+
+  it('an own settlement joining a road and a ship line recomputes the award', () => {
+    const { v, ships, roads } = routeGeometry();
+    const s = main(newSeaGame());
+    for (const e of roads.edges) putRoad(s, 0, e);
+    for (const e of ships.edges) putShip(s, 0, e);
+    updateLongestRoad(ctxFor(s));
+    expect(s.players[0]!.longestRoadLength).toBe(3);
+    expect(s.longestRoad).toBeNull();
+    give(s, 0, COSTS.settlement);
+    const { state, events } = expectOk(s, 0, { type: 'BUILD_SETTLEMENT', vertex: v });
+    expect(state.players[0]!.longestRoadLength).toBe(5);
+    expect(state.longestRoad).toBe(0);
+    expect(eventsOf(events, 'awardChanged')).toEqual([
+      { type: 'awardChanged', award: 'longestRoad', holder: 0 },
+    ]);
   });
 
   it('building ships updates the award; an opponent settlement cuts a ship line', () => {

@@ -70,11 +70,13 @@ function Routed() {
     return (
       <Suspense fallback={<div className="center-screen">Loading…</div>}>
         <DevBoard
-          key={`${route.players}-${route.seed}-${route.demo}`}
+          key={`${route.players}-${route.seed}-${route.demo}-${route.scenario}-${route.scene}`}
           players={route.players}
           seed={route.seed}
           demo={route.demo}
           seat={route.seat}
+          scenario={route.scenario}
+          scene={route.scene}
         />
       </Suspense>
     );

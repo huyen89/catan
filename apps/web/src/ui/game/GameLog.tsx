@@ -5,13 +5,13 @@ import { hexLabel } from '../../game/labels';
 import { useGameStore } from '../../store/game';
 import { useSeatMeta } from './seats';
 
-export function GameLog({ board }: { board: Board }) {
+export function GameLog({ board, variant }: { board: Board; variant?: string }) {
   const log = useGameStore((s) => s.log);
   const { nameOf, colorOf } = useSeatMeta();
   const ref = useRef<HTMLOListElement>(null);
   const ctx: EventTextContext = useMemo(
-    () => ({ name: nameOf, hexLabel: (id) => hexLabel(board, id) }),
-    [nameOf, board],
+    () => ({ name: nameOf, hexLabel: (id) => hexLabel(board, id), variant }),
+    [nameOf, board, variant],
   );
 
   useEffect(() => {

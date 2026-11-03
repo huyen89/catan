@@ -53,8 +53,9 @@ const buildSettlement: Handler<'BUILD_SETTLEMENT'> = (ctx, a) => {
   p.settlementsLeft--;
   ctx.events.push({ type: 'built', seat: ctx.seat, kind: 'settlement', at: a.vertex });
   awardIslandBonus(ctx, ctx.seat, a.vertex);
-  // A new settlement can cut an opponent's road.
-  updateLongestRoad(ctx, seatsCutAt(ctx, a.vertex, ctx.seat));
+  // A new settlement can cut an opponent's road, and can join the builder's own road and ship
+  // lines into one trade route (they connect only through an own building).
+  updateLongestRoad(ctx, [ctx.seat, ...seatsCutAt(ctx, a.vertex, ctx.seat)]);
 };
 
 const buildCity: Handler<'BUILD_CITY'> = (ctx, a) => {
