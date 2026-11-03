@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CODE_ALPHABET, randomRoomCode } from './codes';
 import { realEngine } from './engineApi';
 import {
@@ -7,7 +7,6 @@ import {
   next,
   ok,
   player,
-  sleep,
   startServer,
   type TestServer,
 } from '../testing/harness';
@@ -259,17 +258,24 @@ describe('lobby', () => {
   });
 
   it('keeps a disconnected owner seat and cleans up empty lobbies', async () => {
-    srv = await startServer({}, { lobbyIdleMs: 50 });
-    const host = await player(srv.url, 'Host');
+    // The idle timer starts when the host's disconnect is processed. Logging in a second player
+    // inside that window raced it under load (ROOM_NOT_FOUND), so log in first, wait for the
+    // disconnect to land and join with a single emit, well inside the idle window.
+    const s = (srv = await startServer({}, { lobbyIdleMs: 300 }));
+    const host = await player(s.url, 'Host');
+    const again = await player(s.url, 'Other');
     const room = await ok(host.socket, 'room:create', {});
     host.socket.disconnect();
-    await sleep(20);
-    const again = await player(srv.url, 'Other');
+    await vi.waitFor(() => expect(s.server.rooms.get(room.id)!.members.size).toBe(0), {
+      interval: 5,
+    });
     const j = await ok(again.socket, 'room:join', { code: room.code });
     expect(j.seats[0]!.connected).toBe(false);
     again.socket.disconnect();
-    await sleep(150);
-    expect(srv.server.repos.rooms.byCode(room.code)).toBeNull();
+    await vi.waitFor(() => expect(s.server.repos.rooms.byCode(room.code)).toBeNull(), {
+      timeout: 3000,
+    });
+    expect(s.server.rooms.get(room.id)).toBeUndefined();
   });
 
   it('chat persists and is replayed on join', async () => {
