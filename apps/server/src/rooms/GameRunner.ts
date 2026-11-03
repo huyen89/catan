@@ -548,6 +548,14 @@ export class GameRunner {
           seats: this.engine.getPendingActors(s),
           ms: this.opts.discardMs ?? DISCARD_MS,
         };
+      case 'goldChoice':
+        // Like a discard, every owed seat chooses at once. Setup gold (one per second settlement)
+        // shares the turn number, so the setup index keeps each choice's timer separate.
+        return {
+          key: `goldChoice:${s.turn.number}:${p.resume.kind === 'setup' ? p.resume.index : p.resume.kind}`,
+          seats: this.engine.getPendingActors(s),
+          ms: this.opts.discardMs ?? DISCARD_MS,
+        };
       case 'specialBuild':
         return {
           key: `specialBuild:${s.turn.number}:${p.seat}`,

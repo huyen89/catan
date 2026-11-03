@@ -167,7 +167,18 @@ export function buildGraph(coords: ReadonlyArray<GraphHex>): BoardGraph {
   return g;
 }
 
+/**
+ * Graphs per board object. buildGraph re-derives its key from every hex on each call, and the
+ * reducer, legal and view call graphFor many times per action on the same board. A board's hexes
+ * never change during a game; the hexes array is checked too, so replacing it re-derives.
+ */
+const byBoard = new WeakMap<object, { hexes: ReadonlyArray<GraphHex>; graph: BoardGraph }>();
+
 /** Convenience: graph for a board's hexes (reads each hex's terrain for sea vs land). */
 export function graphFor(board: { hexes: ReadonlyArray<GraphHex> }): BoardGraph {
-  return buildGraph(board.hexes);
+  const hit = byBoard.get(board);
+  if (hit && hit.hexes === board.hexes) return hit.graph;
+  const graph = buildGraph(board.hexes);
+  byBoard.set(board, { hexes: board.hexes, graph });
+  return graph;
 }
