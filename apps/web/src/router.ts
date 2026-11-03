@@ -6,7 +6,17 @@ export type Route =
   | { name: 'history' }
   | { name: 'stats' }
   | { name: 'replay'; gameId: string }
-  | { name: 'devBoard'; players: number; seed: string; demo: boolean; seat: number }
+  | {
+      name: 'devBoard';
+      players: number;
+      seed: string;
+      demo: boolean;
+      seat: number;
+      /** Open Seas scenario id (validated by the fixture), or null for the classic boards. */
+      scenario: string | null;
+      /** Open Seas demo scene (validated by the fixture). */
+      scene: string | null;
+    }
   | { name: 'notFound' };
 
 const ROOM_RE = /^\/r\/([A-Za-z0-9]{6})\/?$/;
@@ -31,6 +41,8 @@ export function parseRoute(pathname: string, search = ''): Route {
       seed: q.get('seed') || 'dev',
       demo: q.get('demo') !== '0',
       seat,
+      scenario: q.get('scenario') || null,
+      scene: q.get('scene') || null,
     };
   }
   return { name: 'notFound' };

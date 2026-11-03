@@ -138,6 +138,13 @@ const RECIPES: Record<SoundId, (ac: AudioContext, out: AudioNode, t: number) => 
     tone(ac, out, { at: t, freq: 190, to: 90, dur: 0.16, type: 'triangle', gain: 0.6 });
     return 0.2;
   },
+  gold(ac, out, t) {
+    // A bright rising sparkle.
+    [1046.5, 1318.5, 1568, 2093].forEach((f, i) =>
+      tone(ac, out, { at: t + i * 0.06, freq: f, dur: 0.25, type: 'triangle', gain: 0.25 }),
+    );
+    return 0.45;
+  },
   trade(ac, out, t) {
     tone(ac, out, { at: t, freq: 880, dur: 0.12, gain: 0.35 });
     tone(ac, out, { at: t + 0.1, freq: 1318.5, dur: 0.2, gain: 0.35 });
