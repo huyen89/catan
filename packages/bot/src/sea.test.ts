@@ -234,6 +234,35 @@ describe('Open Seas planning', () => {
     expect(play(s, 0).type).toBe('BUILD_SHIP');
   });
 
+  it('places a setup ship when no road edge is legal', () => {
+    const s = seaGame();
+    const g = graphFor(s.board);
+    const v = homeCoast(s, g).find((x) =>
+      g.vertexEdges[x]!.some((e) => g.seaEdges.includes(e) && !g.edgeHexes[e]!.includes(s.pirate!)),
+    )!;
+    settle(s, 0, v);
+    s.players[0]!.roadsLeft = 0;
+    s.phase = { kind: 'setup', index: 0, step: 'road', lastSettlement: v };
+    const view = toPlayerView(s, 0);
+    expect(view.legal!.actions).not.toContain('PLACE_ROAD');
+    expect(play(s, 0).type).toBe('PLACE_SHIP');
+  });
+
+  it('chooses setup gold (between the second settlement and its road)', () => {
+    const s = seaGame();
+    const g = graphFor(s.board);
+    const v = homeCoast(s, g)[0]!;
+    settle(s, 0, v);
+    s.phase = {
+      kind: 'goldChoice',
+      pending: { '0': 1 },
+      resume: { kind: 'setup', index: 7, step: 'road', lastSettlement: v },
+    };
+    s.turn.current = 0;
+    const action = play(s, 0);
+    expect(action.type).toBe('CHOOSE_GOLD');
+  });
+
   describe('robber or pirate', () => {
     /** Seat 1 (the leader) has an open ship on a sea hex away from the pirate. */
     function setupPirateTarget(): { s: GameState; hex: HexId } {
