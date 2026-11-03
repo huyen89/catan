@@ -1,4 +1,4 @@
-/** Longest road (longest trail, broken by opponent buildings) and largest army bookkeeping. */
+/** Longest road / trade route (longest trail, broken by opponent buildings) and largest army. */
 import type { Ctx } from '../context';
 import type { BoardGraph } from '../hex/topology';
 import type { EdgeId, Seat, VertexId } from '../types';
@@ -7,26 +7,42 @@ import type { Pieces } from './placement';
 export const LONGEST_ROAD_MIN = 5;
 export const LARGEST_ARMY_MIN = 3;
 
+type Kind = 'road' | 'ship';
+
 /**
- * Length of the seat's longest trail: a walk along its own roads that never reuses an edge and
- * does not continue through a vertex holding an opponent's building.
+ * Length of the seat's longest trail: a walk along its own roads and ships that never reuses an
+ * edge and does not continue through a vertex holding an opponent's building. With ships (the
+ * Open Seas trade route) the walk may switch between a road and a ship only at a vertex holding
+ * the seat's own building.
  */
 export function longestTrail(pieces: Pieces, graph: BoardGraph, seat: Seat): number {
-  const own: EdgeId[] = Object.keys(pieces.roads).filter((e) => pieces.roads[e] === seat);
-  if (own.length === 0) return 0;
-  const blocked = (v: VertexId): boolean => {
-    const b = Object.hasOwn(pieces.buildings, v) ? pieces.buildings[v] : undefined;
-    return b !== undefined && b.owner !== seat;
+  const ships = pieces.ships ?? {};
+  const kindOf = (e: EdgeId): Kind | null => {
+    if (Object.hasOwn(pieces.roads, e) && pieces.roads[e] === seat) return 'road';
+    if (Object.hasOwn(ships, e) && ships[e] === seat) return 'ship';
+    return null;
   };
+  const own: EdgeId[] = [
+    ...Object.keys(pieces.roads).filter((e) => pieces.roads[e] === seat),
+    ...Object.keys(ships).filter((e) => ships[e] === seat),
+  ];
+  if (own.length === 0) return 0;
+  const ownerAt = (v: VertexId): Seat | undefined =>
+    Object.hasOwn(pieces.buildings, v) ? pieces.buildings[v]!.owner : undefined;
   const used = new Set<EdgeId>();
-  const walk = (v: VertexId): number => {
+  /** Longest continuation from `v`, having arrived over a piece of kind `came` (null at start). */
+  const walk = (v: VertexId, came: Kind | null): number => {
+    const mine = ownerAt(v) === seat;
     let best = 0;
     for (const e of graph.vertexEdges[v] ?? []) {
-      if (used.has(e) || !Object.hasOwn(pieces.roads, e) || pieces.roads[e] !== seat) continue;
+      if (used.has(e)) continue;
+      const kind = kindOf(e);
+      if (kind === null || (came !== null && kind !== came && !mine)) continue;
       const [a, b] = graph.edgeVertices[e]!;
       const w = a === v ? b : a;
+      const o = ownerAt(w);
       used.add(e);
-      const len = 1 + (blocked(w) ? 0 : walk(w));
+      const len = 1 + (o !== undefined && o !== seat ? 0 : walk(w, kind));
       used.delete(e);
       if (len > best) best = len;
     }
@@ -35,16 +51,22 @@ export function longestTrail(pieces: Pieces, graph: BoardGraph, seat: Seat): num
   let best = 0;
   const starts = new Set<VertexId>();
   for (const e of own) for (const v of graph.edgeVertices[e] ?? []) starts.add(v);
-  for (const v of starts) best = Math.max(best, walk(v));
+  for (const v of starts) best = Math.max(best, walk(v, null));
   return best;
 }
 
-/** Opponents of `seat` with a road touching `v`: the only trails a new building at `v` can cut. */
+/**
+ * Opponents of `seat` with a road or ship touching `v`: the only trails a new building at `v` can
+ * cut.
+ */
 export function seatsCutAt(ctx: Ctx, v: VertexId, seat: Seat): Seat[] {
   const out = new Set<Seat>();
+  const { roads, ships } = ctx.state;
   for (const e of ctx.graph.vertexEdges[v] ?? []) {
-    const owner = Object.hasOwn(ctx.state.roads, e) ? ctx.state.roads[e] : undefined;
-    if (owner !== undefined && owner !== seat) out.add(owner);
+    for (const map of [roads, ships]) {
+      const owner = Object.hasOwn(map, e) ? map[e] : undefined;
+      if (owner !== undefined && owner !== seat) out.add(owner);
+    }
   }
   return [...out];
 }

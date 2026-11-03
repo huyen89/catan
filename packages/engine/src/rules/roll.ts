@@ -3,6 +3,7 @@ import { emptyResources, totalResources } from '../resources';
 import { nextInt } from '../rng';
 import { RESOURCES, TERRAIN_RESOURCE, type ResourceCounts } from '../types';
 import { expectPhase, expectSeat, withVictoryCheck } from './flow';
+import { goldYield, pirateAllowed } from './sea';
 
 /**
  * RULES.md#turn — production for `total`. Robber blocks its hex. Bank shortage: if the bank can't
@@ -47,8 +48,16 @@ const roll: Handler<'ROLL'> = (ctx) => {
   ctx.events.push({ type: 'rolled', seat: ctx.seat, dice, total });
 
   if (total !== 7) {
-    ctx.events.push({ type: 'produced', gains: produce(ctx, total) });
-    s.phase = { kind: 'main' };
+    const gains = produce(ctx, total);
+    const gold = goldYield(ctx, total);
+    if (Object.keys(gold).length === 0) {
+      ctx.events.push({ type: 'produced', gains });
+      s.phase = { kind: 'main' };
+      return;
+    }
+    // Gold is chosen right away, by every owner at once (like discarding).
+    ctx.events.push({ type: 'produced', gains, gold: { ...gold } });
+    s.phase = { kind: 'goldChoice', pending: gold, resume: { kind: 'main' } };
     return;
   }
   const pending: Record<string, number> = {};
@@ -60,7 +69,7 @@ const roll: Handler<'ROLL'> = (ctx) => {
     s.phase = { kind: 'discard', pending };
     ctx.events.push({ type: 'discardRequired', pending: { ...pending } });
   } else {
-    s.phase = { kind: 'moveRobber', returnTo: 'main', allowPirate: false };
+    s.phase = { kind: 'moveRobber', returnTo: 'main', allowPirate: pirateAllowed(s) };
   }
 };
 

@@ -158,7 +158,7 @@ describe('Open Seas contract: createGame', () => {
         }
   });
 
-  it('Open Seas actions are registered but not implemented yet', () => {
+  it('Open Seas actions are implemented and reject out of phase', () => {
     const s = createGame(normalizeConfig({ players: 3, variant: 'seafarers' }), 'stub');
     const actions: Action[] = [
       { type: 'PLACE_SHIP', edge: '0,0,NE' },
@@ -170,7 +170,7 @@ describe('Open Seas contract: createGame', () => {
     for (const a of actions) {
       const r = applyAction(s, 0, a);
       expect(r.ok).toBe(false);
-      if (!r.ok) expect(r.error.code).toBe('NOT_IMPLEMENTED');
+      if (!r.ok) expect(r.error.code).toBe('WRONG_PHASE');
     }
   });
 });

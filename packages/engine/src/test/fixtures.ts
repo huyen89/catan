@@ -78,6 +78,22 @@ export function putRoad(state: GameState, seat: Seat, edge: string): GameState {
   return state;
 }
 
+/** Place a ship directly (no validation). */
+export function putShip(state: GameState, seat: Seat, edge: string): GameState {
+  state.ships[edge] = seat;
+  state.players[seat]!.shipsLeft--;
+  return state;
+}
+
+/** A fresh Open Seas game (default: New Shores, 4 players). */
+export function newSeaGame(
+  players = 4,
+  scenario = players >= 5 ? 'grandVoyage' : 'newShores',
+  seed = 'sea-seed',
+): GameState {
+  return newGame(players, { variant: 'seafarers', scenario }, seed);
+}
+
 /** Overwrite a hex's terrain/token (tests that need a known board). Mutates and returns state. */
 export function setHex(
   state: GameState,

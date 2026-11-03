@@ -11,6 +11,7 @@ import {
   RESOURCES,
   type Action,
   type ActionType,
+  type GameConfig,
   type GameEvent,
   type GameState,
   type LegalSummary,
@@ -34,6 +35,8 @@ const WEIGHTS: Partial<Record<ActionType, number>> = {
   BUILD_CITY: 40,
   BUILD_SETTLEMENT: 40,
   BUILD_ROAD: 8,
+  BUILD_SHIP: 8,
+  MOVE_SHIP: 3,
   BUY_DEV: 10,
   PLAY_KNIGHT: 6,
   PLAY_ROAD_BUILDING: 6,
@@ -82,13 +85,27 @@ export function buildAction(
       return oneOf(legal.robberHexes, (hex) => ({ type, hex }));
     case 'STEAL':
       return oneOf(legal.stealVictims, (victim) => ({ type, victim }));
-    // Open Seas actions: ENG adds payload builders together with the rules.
     case 'PLACE_SHIP':
     case 'BUILD_SHIP':
+      return oneOf(legal.shipEdges, (edge) => ({ type, edge }));
     case 'MOVE_SHIP':
+      return oneOf(Object.keys(legal.shipMoves).sort(), (from) => ({
+        type,
+        from,
+        to: pick(rnd, legal.shipMoves[from]!),
+      }));
     case 'MOVE_PIRATE':
-    case 'CHOOSE_GOLD':
-      return null;
+      return oneOf(legal.pirateHexes, (hex) => ({ type, hex }));
+    case 'CHOOSE_GOLD': {
+      // One card at a time from what the bank still has after the earlier picks.
+      const resources = resourcesOf({});
+      for (let i = 0; i < legal.goldCount; i++) {
+        const left = RESOURCES.filter((r) => state.bank[r] > resources[r]);
+        if (left.length === 0) return null;
+        resources[pick(rnd, left)]++;
+      }
+      return { type, resources };
+    }
     case 'ROLL':
     case 'BUY_DEV':
     case 'PLAY_KNIGHT':
@@ -194,15 +211,17 @@ export interface RandomGame {
 /**
  * Play random legal actions from a fresh game until game over or `maxSteps`.
  * Throws if a pending actor has no legal action or a chosen action is rejected.
- * `onStep` sees every intermediate state (after each action).
+ * `onStep` sees every intermediate state (after each action). `config` overrides the default
+ * config for the player count (e.g. `{ variant: 'seafarers', scenario: 'archipelago' }`).
  */
 export function playRandomGame(
   seed: string,
   players: number,
   maxSteps: number,
   onStep?: (state: GameState, step: Step) => void,
+  config: Partial<GameConfig> = {},
 ): RandomGame {
-  const initial = createGame(normalizeConfig({ players }), seed);
+  const initial = createGame(normalizeConfig({ ...config, players }), seed);
   const rnd = seededRandom(`${seed}/play`);
   const log: Step[] = [];
   const events: GameEvent[] = [];

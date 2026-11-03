@@ -6,11 +6,29 @@ import { applyAction } from './reducer';
 import { totalResources } from './resources';
 import { violations } from './test/invariants';
 import { buildAction, playRandomGame, seededRandom } from './test/randomPlay';
-import type { ActionType } from './types';
+import { SCENARIOS, type ScenarioId } from './board/layouts';
+import type { ActionType, GameConfig } from './types';
 import { toPlayerView } from './view';
 
 const seedArb = fc.integer({ min: 0, max: 1_000_000 }).map((n) => `prop-${n}`);
 const playersArb = fc.constantFrom(3, 4, 5, 6);
+
+/** Every Open Seas scenario with every player count it supports. */
+const SEA_GAMES: Array<{ players: number; config: Partial<GameConfig> }> = (
+  Object.keys(SCENARIOS) as ScenarioId[]
+).flatMap((scenario) => {
+  const { minPlayers = 3, maxPlayers = 6 } = SCENARIOS[scenario];
+  return Array.from({ length: maxPlayers - minPlayers + 1 }, (_, i) => ({
+    players: minPlayers + i,
+    config: { variant: 'seafarers' as const, scenario },
+  }));
+});
+
+/** Default variant for 3-6 players, or an Open Seas scenario (about half the samples). */
+const gameArb = fc.oneof(
+  playersArb.map((players) => ({ players, config: {} as Partial<GameConfig> })),
+  fc.constantFrom(...SEA_GAMES),
+);
 
 /** Action types that take no payload: if not listed by getLegal they must be rejected. */
 const NO_ARG: ActionType[] = [
@@ -23,18 +41,59 @@ const NO_ARG: ActionType[] = [
 ];
 
 describe('engine property tests', () => {
-  it('property: random games (3-6 players) keep invariants and never throw', () => {
+  it('property: random games (3-6 players, all variants) keep invariants and never throw', () => {
     fc.assert(
-      fc.property(seedArb, playersArb, (seed, players) => {
-        const game = playRandomGame(seed, players, 300, (s, step) => {
-          const bad = violations(s);
-          if (bad.length > 0) expect.fail(`${JSON.stringify(step)} → ${bad.join('; ')}`);
-        });
+      fc.property(seedArb, gameArb, (seed, { players, config }) => {
+        const game = playRandomGame(
+          seed,
+          players,
+          300,
+          (s, step) => {
+            const bad = violations(s);
+            if (bad.length > 0) expect.fail(`${JSON.stringify(step)} → ${bad.join('; ')}`);
+          },
+          config,
+        );
         expect(game.state.phase.kind === 'gameOver' || game.log.length === 300).toBe(true);
       }),
-      { numRuns: 30 },
+      { numRuns: 40 },
     );
-  }, 30_000);
+  }, 60_000);
+
+  it('property: long Open Seas games keep invariants and use every sea rule', () => {
+    const seen = new Set<string>();
+    for (const { players, config } of SEA_GAMES) {
+      for (const seed of ['a', 'b']) {
+        playRandomGame(
+          `sea-${config.scenario}-${players}-${seed}`,
+          players,
+          3000,
+          (s, step) => {
+            seen.add(step.action.type);
+            if (s.phase.kind === 'steal') seen.add(`steal:${s.phase.via}`);
+            if (s.phase.kind === 'goldChoice') seen.add(`gold:${s.phase.resume.kind}`);
+            if (Object.values(s.players).some((p) => p.bonusVP > 0)) seen.add('islandBonus');
+            if (s.version % 5 !== 0) return;
+            const bad = violations(s);
+            if (bad.length > 0) expect.fail(`${JSON.stringify(step)} → ${bad.join('; ')}`);
+          },
+          config,
+        );
+      }
+    }
+    for (const what of [
+      'PLACE_SHIP',
+      'BUILD_SHIP',
+      'MOVE_SHIP',
+      'MOVE_PIRATE',
+      'CHOOSE_GOLD',
+      'steal:pirate',
+      'gold:main',
+      'islandBonus',
+    ]) {
+      expect([...seen], what).toContain(what);
+    }
+  }, 120_000);
 
   it('property: random games for 3, 4, 5 and 6 players reach gameOver', () => {
     // Most sampled games (>= 80%) must actually finish; the rest may hit the step cap.
@@ -57,12 +116,46 @@ describe('engine property tests', () => {
     expect(finished / total).toBeGreaterThanOrEqual(0.8);
   }, 30_000);
 
+  it('regression: a settlement joining own road and ship lines refreshes the trade route', () => {
+    // These games build such a settlement; the award used to go stale (cached trail too short).
+    for (const seed of ['sf-1']) {
+      playRandomGame(
+        seed,
+        4,
+        700,
+        (s, step) => {
+          const bad = violations(s);
+          if (bad.length > 0) expect.fail(`${seed} ${JSON.stringify(step)} → ${bad.join('; ')}`);
+        },
+        { variant: 'seafarers', scenario: 'archipelago' },
+      );
+    }
+  }, 60_000);
+
+  it('property: random Open Seas games reach gameOver', () => {
+    const MAX_STEPS = 8000;
+    let finished = 0;
+    for (const { players, config } of SEA_GAMES) {
+      const game = playRandomGame(
+        `sea-end-${config.scenario}-${players}`,
+        players,
+        MAX_STEPS,
+        undefined,
+        config,
+      );
+      if (game.state.phase.kind !== 'gameOver') continue;
+      finished++;
+      expect(game.state.winner).toBe(game.state.phase.winner);
+    }
+    expect(finished / SEA_GAMES.length).toBeGreaterThanOrEqual(0.8);
+  }, 60_000);
+
   it('property: every action listed by getLegal for a pending actor succeeds', () => {
     fc.assert(
-      fc.property(seedArb, playersArb, (seed, players) => {
+      fc.property(seedArb, gameArb, (seed, { players, config }) => {
         const rnd = seededRandom(`${seed}/legal`);
         let step = 0;
-        playRandomGame(seed, players, 300, (s) => {
+        const check = (s: Parameters<typeof violations>[0]) => {
           // Check every early (setup) step, then a sample of the rest.
           if (step++ > 30 && step % 4 !== 0) return;
           for (const seat of getPendingActors(s)) {
@@ -79,16 +172,17 @@ describe('engine property tests', () => {
               expect(applyAction(s, seat, { type } as never).ok, `${type} unlisted`).toBe(false);
             }
           }
-        });
+        };
+        playRandomGame(seed, players, 300, check, config);
       }),
-      { numRuns: 10 },
+      { numRuns: 14 },
     );
-  }, 30_000);
+  }, 60_000);
 
   it('property: same seed + same actions → identical state', () => {
     fc.assert(
-      fc.property(seedArb, playersArb, (seed, players) => {
-        const game = playRandomGame(seed, players, 300);
+      fc.property(seedArb, gameArb, (seed, { players, config }) => {
+        const game = playRandomGame(seed, players, 300, undefined, config);
         let s = structuredClone(game.initial);
         for (const { seat, action } of game.log) {
           const res = applyAction(s, seat, action);
@@ -103,9 +197,9 @@ describe('engine property tests', () => {
 
   it("property: views never reveal opponents' hands, dev cards, the rng or the deck", () => {
     fc.assert(
-      fc.property(seedArb, playersArb, (seed, players) => {
+      fc.property(seedArb, gameArb, (seed, { players, config }) => {
         let step = 0;
-        playRandomGame(seed, players, 300, (s) => {
+        const check = (s: Parameters<typeof violations>[0]) => {
           if (step++ % 10 !== 0 || s.phase.kind === 'gameOver') return;
           for (const viewer of [null, ...s.players.map((p) => p.seat)]) {
             const json = JSON.stringify(toPlayerView(s, viewer));
@@ -124,7 +218,8 @@ describe('engine property tests', () => {
               expect(p.resourceCount).toBe(totalResources(s.players[p.seat]!.resources));
             }
           }
-        });
+        };
+        playRandomGame(seed, players, 300, check, config);
       }),
       { numRuns: 8 },
     );

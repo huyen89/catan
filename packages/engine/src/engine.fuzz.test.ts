@@ -177,7 +177,15 @@ function junkValue(state: GameState, field: string, rnd: Rnd): unknown {
     case 'resources':
       if (rnd() < 0.5) return junkCounts(rnd);
       return [pick(rnd, [...RESOURCES, 'gold']), pick(rnd, [...RESOURCES, 'sea'])];
+    case 'from':
+      // MOVE_SHIP: usually a real edge, sometimes one holding a ship.
+      if (x < 0.5 && Object.keys(state.ships).length > 0) {
+        return pick(rnd, Object.keys(state.ships));
+      }
+      return x < 0.8 ? pick(rnd, graph.edges) : `${pick(rnd, graph.vertices)}E`;
     case 'to':
+      // A seat list for OFFER_TRADE, an edge for MOVE_SHIP: try both shapes.
+      if (rnd() < 0.5) return pick(rnd, graph.seaEdges.length ? graph.seaEdges : graph.edges);
       return pick(rnd, [null, [], [0], [0, 0], [1, 2], [state.turn.current], [-1], [9], 'all']);
     case 'counterTo':
     case 'offerId': {
@@ -319,6 +327,11 @@ const REVERSE_CHECKED: ActionType[] = [
   'PLAY_MONOPOLY',
   'END_TURN',
   'PASS_SPECIAL_BUILD',
+  'PLACE_SHIP',
+  'BUILD_SHIP',
+  'MOVE_SHIP',
+  'MOVE_PIRATE',
+  'CHOOSE_GOLD',
 ];
 
 /** The converse of "accepted ⇒ listed": what getLegal offers (for these types) must succeed. */
@@ -334,8 +347,12 @@ function assertOfferedAccepted(state: GameState, seat: number, rnd: Rnd, label: 
   }
 }
 
-function fuzzGame(seed: string, players: number, variant: VariantId, junkRate: number): void {
-  let state = createGame(normalizeConfig({ players, variant }), seed);
+function fuzzGame(
+  seed: string,
+  { players, variant, scenario }: { players: number; variant: VariantId; scenario?: string },
+  junkRate: number,
+): void {
+  let state = createGame(normalizeConfig({ players, variant, scenario }), seed);
   const rnd = seededRandom(`${seed}/fuzz`);
   for (let step = 0; step < STEPS && state.phase.kind !== 'gameOver'; step++) {
     if (rnd() < junkRate) {
@@ -375,6 +392,16 @@ function safeJson(x: unknown): string {
 const configArb = fc.oneof(
   fc.record({ players: fc.constantFrom(3, 4), variant: fc.constant<VariantId>('base') }),
   fc.record({ players: fc.constantFrom(3, 4, 5, 6), variant: fc.constant<VariantId>('ext56') }),
+  fc.record({
+    players: fc.constantFrom(3, 4),
+    variant: fc.constant<VariantId>('seafarers'),
+    scenario: fc.constantFrom('newShores', 'archipelago'),
+  }),
+  fc.record({
+    players: fc.constantFrom(5, 6),
+    variant: fc.constant<VariantId>('seafarers'),
+    scenario: fc.constant('grandVoyage'),
+  }),
 );
 
 describe('engine fuzz', () => {
@@ -386,7 +413,7 @@ describe('engine fuzz', () => {
           fc.integer({ min: 0, max: 1_000_000 }).map((n) => `fuzz-${n}`),
           configArb,
           fc.double({ min: 0.2, max: 0.6, noNaN: true }),
-          (seed, { players, variant }, junkRate) => fuzzGame(seed, players, variant, junkRate),
+          (seed, config, junkRate) => fuzzGame(seed, config, junkRate),
         ),
         { numRuns: RUNS },
       );

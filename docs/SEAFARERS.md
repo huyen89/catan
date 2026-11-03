@@ -82,7 +82,7 @@ In-product name: **Open Seas**. Variant id: `seafarers`. Original scenario names
   - `shipMoves: Record<EdgeId, EdgeId[]>`
   - `pirateHexes: HexId[]`
   - `goldCount: number`
-  - `canAfford.ship` (affordability only, like the other `canAfford` flags)
+  - `canAfford.ship` (affordability, like the other `canAfford` flags; always false in variants without ships)
 - `PublicPlayer`: `shipsLeft`, `bonusVP`.
 - `PlayerView`: `ships`, `pirate`, `islandBonus`.
 - `COSTS.ship = { lumber: 1, wool: 1 }`.
