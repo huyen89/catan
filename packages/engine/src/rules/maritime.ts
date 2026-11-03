@@ -1,11 +1,14 @@
 import { err, type Handler, type HandlerMap } from '../context';
-import { RESOURCES, type GameState, type Seat } from '../types';
+import { RESOURCES, type GameState, type ResourceCounts, type Seat } from '../types';
 import { expectPhase, expectSeat, isResource, withVictoryCheck } from './flow';
 import { maritimeRatios } from './placement';
 
 /** Is there any maritime trade `seat` could make right now (ignoring phase)? */
-export function canTradeMaritime(state: GameState, seat: Seat): boolean {
-  const ratios = maritimeRatios(state, seat);
+export function canTradeMaritime(
+  state: GameState,
+  seat: Seat,
+  ratios: ResourceCounts = maritimeRatios(state, seat),
+): boolean {
   const hand = state.players[seat]!.resources;
   return RESOURCES.some(
     (give) =>

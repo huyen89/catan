@@ -4,9 +4,9 @@ import { getLegal } from './legal';
 import { getPendingActors } from './pending';
 import { applyAction } from './reducer';
 import { totalResources } from './resources';
+import { violations } from './test/invariants';
 import { buildAction, playRandomGame, seededRandom } from './test/randomPlay';
-import { RESOURCES, type ActionType, type GameState } from './types';
-import { VARIANTS } from './variants';
+import type { ActionType } from './types';
 import { toPlayerView } from './view';
 
 const seedArb = fc.integer({ min: 0, max: 1_000_000 }).map((n) => `prop-${n}`);
@@ -21,63 +21,6 @@ const NO_ARG: ActionType[] = [
   'END_TURN',
   'PASS_SPECIAL_BUILD',
 ];
-
-/** Invariant violations in `s` (empty when all hold). Plain checks keep per-step cost low. */
-function violations(s: GameState): string[] {
-  const out: string[] = [];
-  const check = (ok: boolean, msg: string) => {
-    if (!ok) out.push(msg);
-  };
-  const variant = VARIANTS[s.config.variant];
-  for (const r of RESOURCES) {
-    check(s.bank[r] >= 0, `bank ${r} negative`);
-    let held = s.bank[r];
-    for (const p of s.players) {
-      check(p.resources[r] >= 0, `seat ${p.seat} ${r} negative`);
-      held += p.resources[r];
-    }
-    check(held === variant.bankPerResource, `${r} not conserved (${held})`);
-  }
-  for (const p of s.players) {
-    const own = Object.values(s.buildings).filter((b) => b.owner === p.seat);
-    const roads = Object.values(s.roads).filter((o) => o === p.seat).length;
-    const settlements = own.filter((b) => b.kind === 'settlement').length;
-    const cities = own.filter((b) => b.kind === 'city').length;
-    check(
-      p.roadsLeft >= 0 && p.settlementsLeft >= 0 && p.citiesLeft >= 0,
-      `seat ${p.seat} pieces < 0`,
-    );
-    check(p.roadsLeft + roads === variant.pieces.roads, `seat ${p.seat} roads`);
-    // An upgraded city gives its settlement piece back.
-    check(
-      p.settlementsLeft + settlements === variant.pieces.settlements,
-      `seat ${p.seat} settlements`,
-    );
-    check(p.citiesLeft + cities === variant.pieces.cities, `seat ${p.seat} cities`);
-  }
-  // At most one holder per award (a single field), and the holder deserves it (ties keep it).
-  if (s.longestRoad !== null) {
-    const holder = s.players[s.longestRoad]!.longestRoadLength;
-    check(holder >= 5, 'longest road holder below 5');
-    check(
-      s.players.every((p) => p.longestRoadLength <= holder),
-      'longest road holder not longest',
-    );
-  }
-  if (s.largestArmy !== null) {
-    const holder = s.players[s.largestArmy]!.playedKnights;
-    check(holder >= 3, 'largest army holder below 3');
-    check(
-      s.players.every((p) => p.playedKnights <= holder),
-      'largest army holder not largest',
-    );
-  }
-  const devs =
-    s.devDeck.length + s.players.reduce((n, p) => n + p.devCards.length + p.newDevCards.length, 0);
-  const deckSize = Object.values(variant.devDeck).reduce((a, b) => a + b, 0);
-  check(devs <= deckSize, 'more dev cards than the deck holds');
-  return out;
-}
 
 describe('engine property tests', () => {
   it('property: random games (3-6 players) keep invariants and never throw', () => {
