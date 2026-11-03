@@ -55,6 +55,16 @@ describe('domestic trade (RULES.md#trading)', () => {
     expect(getLegal(s, 0).actions).toContain('CONFIRM_TRADE');
     expectRejected(s, 0, { type: 'CONFIRM_TRADE', offerId: 1, with: 2 }, 'INVALID_TRADE');
     expectRejected(s, 1, { type: 'CONFIRM_TRADE', offerId: 1, with: 1 }, 'NOT_YOUR_TURN');
+    // Regression (fuzz): a seat given as a string matched the "1" response key and leaked into
+    // the `traded` event as b: "1".
+    for (const bad of ['1', 1.0000001, NaN, '__proto__', null]) {
+      expectRejected(
+        s,
+        0,
+        { type: 'CONFIRM_TRADE', offerId: 1, with: bad as never },
+        'INVALID_TRADE',
+      );
+    }
     const { state, events } = expectOk(s, 0, { type: 'CONFIRM_TRADE', offerId: 1, with: 1 });
     expect(state.players[0]!.resources).toEqual(r({ brick: 1, wool: 1, ore: 1 }));
     expect(state.players[1]!.resources).toEqual(r({ brick: 1, ore: 1 }));

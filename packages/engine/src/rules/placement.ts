@@ -89,14 +89,47 @@ export const setupRoadEdges = (
     ? []
     : graph.vertexEdges[lastSettlement]!.filter((e) => roadAt(pieces, e) === undefined).sort();
 
-export const buildableSettlementVertices = (
+/** Edges holding the seat's roads (ignores ids that are not on this board). */
+function ownRoadEdges(pieces: Pieces, graph: BoardGraph, seat: Seat): EdgeId[] {
+  const out: EdgeId[] = [];
+  for (const e of Object.keys(pieces.roads)) {
+    if (pieces.roads[e] === seat && Object.hasOwn(graph.edgeVertices, e)) out.push(e);
+  }
+  return out;
+}
+
+/**
+ * Vertices where the seat could build a settlement (sorted). Only endpoints of its own roads can
+ * qualify, so those are the only candidates checked instead of every vertex on the board.
+ */
+export function buildableSettlementVertices(
   pieces: Pieces,
   graph: BoardGraph,
   seat: Seat,
-): VertexId[] => graph.vertices.filter((v) => canBuildSettlementAt(pieces, graph, seat, v));
+): VertexId[] {
+  const candidates = new Set<VertexId>();
+  for (const e of ownRoadEdges(pieces, graph, seat)) {
+    for (const v of graph.edgeVertices[e]!) candidates.add(v);
+  }
+  return [...candidates].filter((v) => distanceRuleOk(pieces, graph, v)).sort();
+}
 
-export const buildableRoadEdges = (pieces: Pieces, graph: BoardGraph, seat: Seat): EdgeId[] =>
-  graph.edges.filter((e) => canBuildRoadAt(pieces, graph, seat, e));
+/**
+ * Edges where the seat could build a road (sorted). Only edges touching its own buildings or road
+ * endpoints can qualify, so those are the only candidates checked.
+ */
+export function buildableRoadEdges(pieces: Pieces, graph: BoardGraph, seat: Seat): EdgeId[] {
+  const anchors = new Set<VertexId>();
+  for (const v of Object.keys(pieces.buildings)) {
+    if (pieces.buildings[v]!.owner === seat && isVertex(graph, v)) anchors.add(v);
+  }
+  for (const e of ownRoadEdges(pieces, graph, seat)) {
+    for (const v of graph.edgeVertices[e]!) anchors.add(v);
+  }
+  const candidates = new Set<EdgeId>();
+  for (const v of anchors) for (const e of graph.vertexEdges[v]!) candidates.add(e);
+  return [...candidates].filter((e) => canBuildRoadAt(pieces, graph, seat, e)).sort();
+}
 
 /** The seat's settlements (upgrade candidates). */
 export const ownSettlements = (pieces: Pieces, seat: Seat): VertexId[] =>

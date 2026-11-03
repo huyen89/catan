@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { finishSetup, give, inPhase, newGame } from './test/fixtures';
+import { finishSetup, give, inPhase, newGame, playRandomGame } from './test/fixtures';
 import { expectOk } from './test/expect';
-import { redactEvent, toPlayerView } from './view';
+import { lateGameState } from './test/lateGame';
+import type { GameEvent, GameState, Seat } from './types';
+import {
+  EVENT_VISIBILITY,
+  PLAYER_VISIBILITY,
+  STATE_VISIBILITY,
+  redactEvent,
+  toPlayerView,
+} from './view';
 
 describe('toPlayerView', () => {
   it("hides opponents' hands, dev cards, the rng and the deck order", () => {
@@ -61,6 +69,30 @@ describe('toPlayerView', () => {
     expect(s).toEqual(before);
   });
 
+  it('copies nested phase and turn data (discard, steal, specialBuild, dice)', () => {
+    const phases: GameState['phase'][] = [
+      { kind: 'discard', pending: { '1': 4 } },
+      { kind: 'steal', candidates: [1, 2], returnTo: 'main' },
+      { kind: 'specialBuild', seat: 1, queue: [2, 3] },
+      { kind: 'setup', index: 1, step: 'road', lastSettlement: '0,0,N' },
+    ];
+    for (const phase of phases) {
+      const s = inPhase(newGame(5), phase);
+      s.turn.dice = [3, 4];
+      const before = structuredClone(s);
+      const v = toPlayerView(s, 1);
+      expect(v.phase).toEqual(s.phase);
+      const p = v.phase as unknown as Record<string, unknown>;
+      for (const k of Object.keys(p)) {
+        const val = p[k];
+        if (Array.isArray(val)) val.push(9);
+        else if (val && typeof val === 'object') (val as Record<string, number>)['1'] = 0;
+      }
+      v.turn.dice![0] = 6;
+      expect(s).toEqual(before);
+    }
+  });
+
   it('redacts stolen resources and bought cards for third parties', () => {
     const stole = { type: 'stole', thief: 0, victim: 1, resource: 'ore' } as const;
     expect(redactEvent(stole, 0)).toEqual(stole);
@@ -69,5 +101,149 @@ describe('toPlayerView', () => {
     const bought = { type: 'boughtDev', seat: 2, card: 'knight' } as const;
     expect(redactEvent(bought, 2)).toEqual(bought);
     expect(redactEvent(bought, null)).toEqual({ ...bought, card: null });
+  });
+});
+
+/** Every object/array reachable from `root` (including root itself). */
+function reachableObjects(root: unknown, out = new Set<object>()): Set<object> {
+  if (root === null || typeof root !== 'object' || out.has(root)) return out;
+  out.add(root);
+  for (const v of Object.values(root)) reachableObjects(v, out);
+  return out;
+}
+
+describe('view aliasing', () => {
+  it('shares no object identity with the state, for any phase or viewer', () => {
+    const states: GameState[] = [];
+    for (const players of [4, 6]) {
+      playRandomGame(`alias-${players}`, players, 1500, (s) => {
+        if (s.version % 5 === 0) states.push(s);
+      });
+    }
+    const kinds = new Set(states.map((s) => s.phase.kind));
+    // The sample covers the phases with nested data, so the walk below is meaningful.
+    for (const k of ['setup', 'main', 'preRoll', 'discard', 'moveRobber'])
+      expect(kinds).toContain(k);
+    for (const s of states) {
+      const fromState = reachableObjects(s);
+      for (const viewer of [null, ...s.players.map((p) => p.seat)]) {
+        for (const o of reachableObjects(toPlayerView(s, viewer))) {
+          if (fromState.has(o))
+            expect.fail(`view for ${viewer} in ${s.phase.kind} aliases ${safe(o)}`);
+        }
+      }
+    }
+  });
+});
+
+function safe(o: object): string {
+  return JSON.stringify(o).slice(0, 120);
+}
+
+describe('redaction audit', () => {
+  /** Fresh, mid/late and finished states for 4 and 6 players. */
+  function sampleStates(): GameState[] {
+    const out: GameState[] = [];
+    for (const players of [4, 6]) {
+      const game = playRandomGame(`audit-${players}`, players, 2000);
+      out.push(game.initial, game.state);
+    }
+    out.push(lateGameState(5, 'ext56'));
+    return out;
+  }
+
+  /** Every field of PlayerView. A new one is a new leak surface and must be added deliberately. */
+  const PLAYER_VIEW_KEYS = [
+    'viewer',
+    'version',
+    'config',
+    'board',
+    'robber',
+    'buildings',
+    'roads',
+    'players',
+    'bank',
+    'devDeckCount',
+    'setupOrder',
+    'turn',
+    'phase',
+    'trades',
+    'longestRoad',
+    'largestArmy',
+    'winner',
+    'pendingActors',
+    'legal',
+  ];
+
+  it('every GameState and PlayerState key is classified in view.ts', () => {
+    for (const s of sampleStates()) {
+      expect(Object.keys(s).sort()).toEqual(Object.keys(STATE_VISIBILITY).sort());
+      for (const p of s.players) {
+        expect(Object.keys(p).sort()).toEqual(Object.keys(PLAYER_VISIBILITY).sort());
+      }
+    }
+  });
+
+  it('public fields are copied, private fields never appear, owner fields only for the owner', () => {
+    for (const s of sampleStates()) {
+      const over = s.phase.kind === 'gameOver';
+      for (const viewer of [null, ...s.players.map((p) => p.seat)]) {
+        const v = toPlayerView(s, viewer);
+        expect(Object.keys(v).sort()).toEqual([...PLAYER_VIEW_KEYS].sort());
+        const viewRec = v as unknown as Record<string, unknown>;
+        for (const [key, cls] of Object.entries(STATE_VISIBILITY)) {
+          if (cls === 'public') expect(viewRec[key], key).toEqual(s[key as keyof GameState]);
+          if (cls === 'private') expect(Object.keys(v), key).not.toContain(key);
+        }
+        expect(v.devDeckCount).toBe(s.devDeck.length);
+        const json = JSON.stringify(v);
+        for (const k of ['rng', 'devDeck', 'nextTradeId', 'engineVersion']) {
+          expect(json).not.toContain(`"${k}"`);
+        }
+        for (const p of v.players) {
+          const real = s.players[p.seat]! as unknown as Record<string, unknown>;
+          const pub = p as unknown as Record<string, unknown>;
+          for (const [k, cls] of Object.entries(PLAYER_VISIBILITY)) {
+            if (cls === 'public' || over || p.seat === viewer) {
+              expect(pub[k], `seat ${p.seat} ${k}`).toEqual(real[k]);
+            } else {
+              expect(Object.keys(p), `seat ${p.seat} ${k} for ${viewer}`).not.toContain(k);
+            }
+          }
+          if (!over && p.seat !== viewer) expect(Object.keys(p)).not.toContain('totalVP');
+        }
+      }
+    }
+  });
+
+  it('every emitted event type is classified; redacted ones differ for third parties', () => {
+    const seen = new Set<string>();
+    for (const players of [3, 4, 5, 6]) {
+      for (const seed of ['a', 'b']) {
+        const game = playRandomGame(`events-${seed}`, players, 3000);
+        for (const e of game.events) {
+          seen.add(e.type);
+          expect(Object.keys(EVENT_VISIBILITY), e.type).toContain(e.type);
+          const parties: Seat[] =
+            e.type === 'stole' ? [e.thief, e.victim] : e.type === 'boughtDev' ? [e.seat] : [];
+          for (const viewer of [null, ...Array.from({ length: players }, (_, i) => i)]) {
+            const r = redactEvent(e, viewer);
+            if (EVENT_VISIBILITY[e.type] === 'public' || parties.includes(viewer as Seat)) {
+              expect(r).toEqual(e);
+            } else {
+              expect(r, `${e.type} for ${viewer}`).not.toEqual(e);
+            }
+          }
+        }
+      }
+    }
+    // Random play reaches the redacted kinds, so the checks above actually ran on them.
+    expect(seen).toContain('stole');
+    expect(seen).toContain('boughtDev');
+  });
+
+  it('an event type without a redaction rule is hidden entirely (fail closed)', () => {
+    const unknown = { type: 'secretThing', seat: 0 } as unknown as GameEvent;
+    expect(redactEvent(unknown, 0)).toBeNull();
   });
 });

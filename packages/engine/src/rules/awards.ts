@@ -39,17 +39,31 @@ export function longestTrail(pieces: Pieces, graph: BoardGraph, seat: Seat): num
   return best;
 }
 
+/** Opponents of `seat` with a road touching `v`: the only trails a new building at `v` can cut. */
+export function seatsCutAt(ctx: Ctx, v: VertexId, seat: Seat): Seat[] {
+  const out = new Set<Seat>();
+  for (const e of ctx.graph.vertexEdges[v] ?? []) {
+    const owner = Object.hasOwn(ctx.state.roads, e) ? ctx.state.roads[e] : undefined;
+    if (owner !== undefined && owner !== seat) out.add(owner);
+  }
+  return [...out];
+}
+
 /**
- * Recompute every player's longest trail and reassign the longest-road award:
+ * Recompute the longest trail of the `affected` seats (default: everyone) and reassign the
+ * longest-road award:
  * - nobody below LONGEST_ROAD_MIN holds it;
  * - the holder keeps it while tied for the longest, unless the holder's own road was just broken
  *   (its length dropped): then only a single strictly-longest player gets it, else nobody;
  * - otherwise it goes to the unique longest player, or to nobody on a tie.
  */
-export function updateLongestRoad(ctx: Ctx): void {
+export function updateLongestRoad(ctx: Ctx, affected?: readonly Seat[]): void {
   const s = ctx.state;
   const before = s.longestRoad === null ? 0 : s.players[s.longestRoad]!.longestRoadLength;
-  for (const p of s.players) p.longestRoadLength = longestTrail(s, ctx.graph, p.seat);
+  // Every other player's cached length is still exact: only `affected` seats' trails can change.
+  for (const seat of affected ?? s.players.map((p) => p.seat)) {
+    s.players[seat]!.longestRoadLength = longestTrail(s, ctx.graph, seat);
+  }
   const max = Math.max(...s.players.map((p) => p.longestRoadLength));
   const leaders = s.players.filter((p) => p.longestRoadLength === max).map((p) => p.seat);
   const holderBroken =

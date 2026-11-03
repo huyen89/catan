@@ -2,6 +2,7 @@ import { err, type Ctx, type Handler, type HandlerMap } from '../context';
 import type { BoardGraph } from '../hex/topology';
 import {
   type DevCardType,
+  type EdgeId,
   type EngineError,
   type GameState,
   type PhaseKind,
@@ -66,9 +67,15 @@ const playKnight: Handler<'PLAY_KNIGHT'> = (ctx) => {
 };
 
 /** Free roads available right now: min(2, roads left), or 0 if no edge is buildable. */
-export function roadBuildingCount(state: GameState, graph: BoardGraph, seat: Seat): number {
+export function roadBuildingCount(
+  state: GameState,
+  graph: BoardGraph,
+  seat: Seat,
+  /** The seat's buildable road edges, when the caller has already computed them. */
+  roadEdges: () => readonly EdgeId[] = () => buildableRoadEdges(state, graph, seat),
+): number {
   const n = Math.min(2, state.players[seat]!.roadsLeft);
-  return n > 0 && buildableRoadEdges(state, graph, seat).length > 0 ? n : 0;
+  return n > 0 && roadEdges().length > 0 ? n : 0;
 }
 
 const playRoadBuilding: Handler<'PLAY_ROAD_BUILDING'> = (ctx) => {

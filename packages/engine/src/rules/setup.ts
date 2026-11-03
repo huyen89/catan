@@ -1,7 +1,7 @@
 import { err, type Handler, type HandlerMap } from '../context';
 import { addResources, emptyResources } from '../resources';
 import { TERRAIN_RESOURCE } from '../types';
-import { updateLongestRoad } from './awards';
+import { seatsCutAt, updateLongestRoad } from './awards';
 import { expectSeat, hexById, startTurn, withVictoryCheck } from './flow';
 import { canPlaceSetupRoad, canPlaceSetupSettlement } from './placement';
 
@@ -36,7 +36,7 @@ const placeSettlement: Handler<'PLACE_SETTLEMENT'> = (ctx, a) => {
     ctx.events.push({ type: 'setupResources', seat: ctx.seat, resources: got });
   }
 
-  updateLongestRoad(ctx);
+  updateLongestRoad(ctx, seatsCutAt(ctx, a.vertex, ctx.seat));
   s.phase = { kind: 'setup', index: ph.index, step: 'road', lastSettlement: a.vertex };
 };
 
@@ -57,7 +57,7 @@ const placeRoad: Handler<'PLACE_ROAD'> = (ctx, a) => {
   s.roads[a.edge] = ctx.seat;
   p.roadsLeft--;
   ctx.events.push({ type: 'setupPlaced', seat: ctx.seat, kind: 'road', at: a.edge });
-  updateLongestRoad(ctx);
+  updateLongestRoad(ctx, [ctx.seat]);
 
   const next = ph.index + 1;
   if (next >= s.setupOrder.length) {
