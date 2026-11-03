@@ -77,6 +77,49 @@ describe('soundsFor', () => {
     ).toEqual(['dice', 'yourTurn']);
   });
 
+  it('Open Seas: ships knock, the pirate growls, gold sparkles only for its owner', () => {
+    expect(
+      soundsFor(
+        snap(1),
+        next(2, [
+          { type: 'shipMoved', seat: 0, from: 'a', to: 'b' },
+          { type: 'pirateMoved', seat: 0, hex: 'h' },
+        ]),
+      ),
+    ).toEqual(['robber', 'build']);
+    const produced = (gold: Record<string, number>): GameEvent[] => [
+      { type: 'produced', gains: {}, gold },
+    ];
+    expect(soundsFor(snap(1), next(2, produced({ '1': 2 })))).toEqual(['gold']);
+    expect(soundsFor(snap(1), next(2, produced({ '0': 2 })))).toEqual([]);
+    expect(
+      soundsFor(
+        snap(1),
+        next(2, [{ type: 'setupResources', seat: 1, resources: resourcesOf({}), gold: 1 }]),
+      ),
+    ).toEqual(['gold']);
+    expect(
+      soundsFor(snap(1), next(2, [{ type: 'islandBonus', seat: 1, island: 2, vp: 2 }])),
+    ).toEqual(['gold']);
+    expect(
+      soundsFor(snap(1), next(2, [{ type: 'islandBonus', seat: 0, island: 2, vp: 2 }])),
+    ).toEqual([]);
+  });
+
+  it('a gold choice that makes it my move plays the gold cue alone', () => {
+    const gold = view({
+      phase: { kind: 'goldChoice', pending: { '1': 1 }, resume: { kind: 'main' } },
+      pendingActors: [1],
+    });
+    const rolled: GameEvent[] = [
+      { type: 'rolled', seat: 0, dice: [2, 2], total: 4 },
+      { type: 'produced', gains: {}, gold: { '1': 1 } },
+    ];
+    expect(soundsFor(snap(3), next(4, rolled, gold))).toEqual(['dice', 'gold']);
+    expect(mustAct(gold, 1)).toBe(true);
+    expect(mustAct(gold, 0)).toBe(false);
+  });
+
   it('stays silent for history: first state, resyncs, repeats and other games', () => {
     const rolled: GameEvent[] = [{ type: 'rolled', seat: 0, dice: [1, 2], total: 3 }];
     expect(soundsFor(null, next(5, rolled))).toEqual([]);

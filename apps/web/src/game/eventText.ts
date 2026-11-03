@@ -1,14 +1,14 @@
 import { totalResources, type GameEvent, type Seat, type TradeOffer } from '@hexhaven/engine';
-import { DEV_LABEL, formatCounts, plural } from './labels';
+import { DEV_LABEL, awardLabel, formatCounts, plural } from './labels';
 
 export interface EventTextContext {
   /** Display name for a seat. */
   name(seat: Seat): string;
   /** Human description of a hex, e.g. "Forest (8)". */
   hexLabel(hex: string): string;
+  /** Game variant (award names differ with ships). */
+  variant?: string;
 }
-
-const AWARD_LABEL = { longestRoad: 'Longest Road', largestArmy: 'Largest Army' } as const;
 
 function offerText(o: TradeOffer, ctx: EventTextContext): string {
   const who = ctx.name(o.from);
@@ -34,6 +34,10 @@ export function eventSeat(e: GameEvent): Seat | null {
     case 'tradeResponded':
     case 'turnStarted':
     case 'specialBuildTurn':
+    case 'shipMoved':
+    case 'pirateMoved':
+    case 'goldChosen':
+    case 'islandBonus':
       return e.seat;
     case 'stole':
       return e.thief;
@@ -56,16 +60,20 @@ export function eventText(e: GameEvent, ctx: EventTextContext): string {
   switch (e.type) {
     case 'setupPlaced':
       return `${n(e.seat)} placed a ${e.kind}`;
-    case 'setupResources':
-      return totalResources(e.resources) > 0
-        ? `${n(e.seat)} received ${formatCounts(e.resources)}`
-        : `${n(e.seat)} received no starting resources`;
+    case 'setupResources': {
+      const gold = e.gold ? `${plural(e.gold, 'gold pick')}` : '';
+      if (totalResources(e.resources) > 0)
+        return `${n(e.seat)} received ${formatCounts(e.resources)}${gold ? ` and ${gold}` : ''}`;
+      return gold ? `${n(e.seat)} received ${gold}` : `${n(e.seat)} received no starting resources`;
+    }
     case 'rolled':
       return `${n(e.seat)} rolled ${e.dice[0]} + ${e.dice[1]} = ${e.total}`;
     case 'produced': {
       const parts = Object.entries(e.gains)
         .filter(([, c]) => totalResources(c) > 0)
         .map(([s, c]) => `${n(Number(s))} got ${formatCounts(c)}`);
+      for (const [s, k] of Object.entries(e.gold ?? {}))
+        if (k > 0) parts.push(`${n(Number(s))} picks ${plural(k, 'resource')} from gold`);
       return parts.length ? parts.join('; ') : 'Nobody produced anything';
     }
     case 'discardRequired': {
@@ -112,8 +120,8 @@ export function eventText(e: GameEvent, ctx: EventTextContext): string {
       return `Trade offer #${e.offerId} was withdrawn`;
     case 'awardChanged':
       return e.holder === null
-        ? `Nobody holds ${AWARD_LABEL[e.award]} now`
-        : `${n(e.holder)} now holds ${AWARD_LABEL[e.award]}`;
+        ? `Nobody holds ${awardLabel(e.award, ctx.variant)} now`
+        : `${n(e.holder)} now holds ${awardLabel(e.award, ctx.variant)}`;
     case 'turnStarted':
       return `Turn ${e.turn}: ${n(e.seat)}`;
     case 'specialBuildTurn':
@@ -125,7 +133,7 @@ export function eventText(e: GameEvent, ctx: EventTextContext): string {
     case 'goldChosen':
       return `${n(e.seat)} took ${formatCounts(e.resources)} from gold`;
     case 'islandBonus':
-      return `${n(e.seat)} settled a new island (+${plural(e.vp, 'point')})`;
+      return `${n(e.seat)} settled a new island: +${plural(e.vp, 'victory point')}`;
     case 'gameOver':
       return `${n(e.winner)} wins with ${plural(e.vp[e.winner] ?? 0, 'point')}!`;
   }

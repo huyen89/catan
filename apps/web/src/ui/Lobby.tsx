@@ -1,6 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { BotDifficulty, RoomInfo, RoomSettings, SeatInfo } from '@hexhaven/shared';
-import { canStart, effectiveVariant, parseBoundedInt } from '../game/lobby';
+import {
+  canStart,
+  effectiveScenario,
+  effectiveVariant,
+  parseBoundedInt,
+  scenarioOptions,
+  settingsPatch,
+  startErrorText,
+} from '../game/lobby';
+import { AckFailure, errorMessage } from '../net/emit';
 import { emitAck } from '../net/socket';
 import { leaveRoom, request } from '../net/session';
 import { useSession } from '../store/session';
@@ -170,17 +179,14 @@ function NumberSetting(props: {
 
 function SettingsForm({ room, editable }: { room: RoomInfo; editable: boolean }) {
   const s = room.settings;
-  const update = (patch: Partial<RoomSettings>) => {
-    const next = { ...s, ...patch };
-    // Spiral numbering exists only for the standard board; fall back when switching away.
-    const fixed: Partial<RoomSettings> =
-      next.numberMode === 'spiral' && effectiveVariant(next) !== 'base'
-        ? { ...patch, numberMode: 'random' }
-        : patch;
-    return request(emitAck('room:settings', { settings: fixed }));
-  };
+  // The server applies the patch with mergeRoomSettings (which also picks an Open Seas
+  // scenario's points target); the form shows whatever room:state comes back.
+  const update = (patch: Partial<RoomSettings>) =>
+    request(emitAck('room:settings', { settings: settingsPatch(s, patch) }));
   const num = (v: string) => Number.parseInt(v, 10);
   const spiralAllowed = effectiveVariant(s) === 'base';
+  const seas = s.variant === 'seafarers';
+  const scenario = effectiveScenario(s);
 
   return (
     <fieldset className="settings" disabled={!editable}>
@@ -209,8 +215,25 @@ function SettingsForm({ room, editable }: { room: RoomInfo; editable: boolean })
           <option value="auto">Automatic</option>
           <option value="base">Standard (3–4)</option>
           <option value="ext56">Large (5–6)</option>
+          <option value="seafarers">Open Seas</option>
         </select>
       </label>
+      {seas && (
+        <label>
+          Scenario
+          <select
+            data-testid="settings-scenario"
+            value={scenario}
+            onChange={(e) => update({ scenario: e.target.value as RoomSettings['scenario'] })}
+          >
+            {scenarioOptions(s.maxSeats).map((o) => (
+              <option key={o.id} value={o.id} disabled={!o.fits}>
+                {o.name} ({o.range})
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <label>
         Points to win
         <NumberSetting
@@ -220,6 +243,7 @@ function SettingsForm({ room, editable }: { room: RoomInfo; editable: boolean })
           value={s.vpToWin}
           onCommit={(v) => update({ vpToWin: v })}
         />
+        {seas && <span className="muted small">Set by the scenario; you can change it.</span>}
       </label>
       <label>
         Discard above
@@ -277,6 +301,11 @@ export function Lobby({ room }: { room: RoomInfo }) {
   const user = useSession((s) => s.user)!;
   const [difficulty, setDifficulty] = useState<Record<number, BotDifficulty>>({});
   const [filling, setFilling] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+  // A refused start is about the settings at the time: drop the notice once they change.
+  const settingsKey = JSON.stringify(room.settings);
+  useEffect(() => setStartError(null), [settingsKey]);
   const isHost = room.hostUserId === user.id;
   const seats = room.seats.slice(0, room.settings.maxSeats);
   const mySeat = seats.find((s) => s.userId === user.id);
@@ -290,6 +319,20 @@ export function Lobby({ room }: { room: RoomInfo }) {
       toastInfo('Invite link copied');
     } catch {
       toastError(`Copy failed. Share this link: ${link}`);
+    }
+  };
+
+  const start = async () => {
+    setStarting(true);
+    setStartError(null);
+    try {
+      await emitAck('room:start', {});
+    } catch (e) {
+      const friendly = e instanceof AckFailure ? startErrorText(e.code) : null;
+      if (friendly) setStartError(friendly);
+      else toastError(errorMessage(e));
+    } finally {
+      setStarting(false);
     }
   };
 
@@ -377,17 +420,22 @@ export function Lobby({ room }: { room: RoomInfo }) {
                   type="button"
                   className="primary"
                   data-testid="start-game"
-                  disabled={!canStart(room)}
+                  disabled={starting || !canStart(room)}
                   title={
                     canStart(room) ? undefined : 'Every seat must be filled and every human ready'
                   }
-                  onClick={() => request(emitAck('room:start', {}))}
+                  onClick={start}
                 >
                   Start game
                 </button>
               </>
             )}
           </div>
+          {startError && (
+            <p className="notice" role="alert" data-testid="start-error">
+              {startError}
+            </p>
+          )}
           {!isHost && (
             <p className="muted small">The host starts the game when everyone is ready.</p>
           )}

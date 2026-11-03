@@ -30,12 +30,18 @@ describe('parseRoute', () => {
       seed: 'x',
       demo: true,
       seat: 4,
+      scenario: null,
+      scene: null,
     });
     expect(parseRoute('/dev/board', '?players=12&demo=0')).toMatchObject({
       players: 6,
       seed: 'dev',
       demo: false,
       seat: 0,
+    });
+    expect(parseRoute('/dev/board', '?scenario=archipelago&scene=gold')).toMatchObject({
+      scenario: 'archipelago',
+      scene: 'gold',
     });
   });
 });

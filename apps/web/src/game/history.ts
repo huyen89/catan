@@ -1,11 +1,18 @@
 import type { GameSummary, StatsResponse } from '@hexhaven/shared';
+import { scenarioName } from './lobby';
 
 export const VARIANT_LABEL: Record<string, string> = {
   base: 'Classic (3–4)',
   ext56: 'Extended (5–6)',
+  seafarers: 'Open Seas',
 };
 
-export const variantLabel = (v: string): string => VARIANT_LABEL[v] ?? v;
+/** "Classic (3–4)", or "Open Seas · New Shores" when the scenario is known. */
+export function variantLabel(v: string, scenario?: string): string {
+  const label = VARIANT_LABEL[v] ?? v;
+  const name = v === 'seafarers' ? scenarioName(scenario) : null;
+  return name ? `${label} · ${name}` : label;
+}
 
 /** "12 Mar 2026, 19:05" in the user's locale (time zone injectable for tests). */
 export function formatDateTime(ts: number, locale?: string, timeZone?: string): string {

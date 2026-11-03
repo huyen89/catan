@@ -78,6 +78,11 @@ describe('formatting', () => {
     expect(formatDateTime(Date.UTC(2026, 2, 12, 19, 5), 'en-GB', 'UTC')).toBe('12 Mar 2026, 19:05');
     expect(variantLabel('ext56')).toBe('Extended (5–6)');
     expect(variantLabel('custom')).toBe('custom');
+    expect(variantLabel('seafarers')).toBe('Open Seas');
+    expect(variantLabel('seafarers', 'archipelago')).toBe('Open Seas · Archipelago');
+    expect(variantLabel('seafarers', 'atlantis')).toBe('Open Seas');
+    expect(variantLabel('base', 'archipelago')).toBe('Classic (3–4)');
+    expect(historyRow({ ...game(), variant: 'seafarers' }).variant).toBe('Open Seas');
   });
 });
 

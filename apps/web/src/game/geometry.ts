@@ -1,4 +1,5 @@
 import {
+  hexNeighbors,
   hexToPixel,
   parseHexId,
   vertexToPixel,
@@ -69,12 +70,13 @@ export const PORT_OFFSET = 0.62;
 
 /**
  * Where to draw a port marker: pushed out from the coast edge's midpoint, away from the land hex
- * that owns the edge.
+ * that owns the edge (on Open Seas boards the edge also touches a sea hex, which is skipped).
  */
 export function portAnchor(g: BoardGraph, edge: EdgeId, size = HEX_SIZE): Point {
   const [a, b] = edgePoints(g, edge, size);
   const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-  const land = g.edgeHexes[edge]?.[0];
+  const hexes = g.edgeHexes[edge] ?? [];
+  const land = hexes.find((h) => g.islandOf[h] !== undefined) ?? hexes[0];
   if (!land) return mid;
   const c = hexCenter(land, size);
   const dx = mid.x - c.x;
@@ -83,13 +85,46 @@ export function portAnchor(g: BoardGraph, edge: EdgeId, size = HEX_SIZE): Point 
   return { x: mid.x + (dx / len) * size * PORT_OFFSET, y: mid.y + (dy / len) * size * PORT_OFFSET };
 }
 
-/** A viewBox containing every hex plus room for port markers around the coast. */
+/** Midpoint of an edge (where ships sit). */
+export function edgeMidpoint(graph: BoardGraph, id: EdgeId, size = HEX_SIZE): Point {
+  const [a, b] = edgePoints(graph, id, size);
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+
+/**
+ * Sea hexes on the outer rim of a sea-framed board (fewer than six neighbours on the board).
+ * They only frame the map, so the viewBox may cut them in half to give the islands more room.
+ */
+export function rimSeaHexes(board: Board): Set<HexId> {
+  const ids = new Set(board.hexes.map((h) => h.id));
+  const rim = new Set<HexId>();
+  for (const h of board.hexes) {
+    if (h.terrain !== 'sea') continue;
+    if (hexNeighbors(h.q, h.r).some((n) => !ids.has(n))) rim.add(h.id);
+  }
+  return rim;
+}
+
+/**
+ * How much of the rim stays visible around the inner hexes of a sea-framed board, in radii:
+ * enough for a whole pirate sprite on a rim hex and a ship on any edge next to the rim.
+ */
+export const RIM_MARGIN = 1.1;
+
+/**
+ * A viewBox containing every hex plus room for port markers around the coast. On sea-framed
+ * boards (Open Seas) the outer sea ring is cropped to its inner half: ports sit on inner
+ * coasts there, and the bigger maps need every pixel on a phone.
+ */
 export function boardViewBox(board: Board, size = HEX_SIZE): ViewBox {
+  const rim = rimSeaHexes(board);
+  const inner = board.hexes.filter((h) => !rim.has(h.id));
+  const cropped = rim.size > 0 && inner.length > 0;
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
-  for (const h of board.hexes) {
+  for (const h of cropped ? inner : board.hexes) {
     for (const p of hexCornerPoints(h.q, h.r, size)) {
       minX = Math.min(minX, p.x);
       minY = Math.min(minY, p.y);
@@ -98,12 +133,30 @@ export function boardViewBox(board: Board, size = HEX_SIZE): ViewBox {
     }
   }
   if (!Number.isFinite(minX)) return { minX: 0, minY: 0, width: size, height: size };
-  const margin = size * (PORT_OFFSET + 0.45);
+  const margin = size * (cropped ? RIM_MARGIN : PORT_OFFSET + 0.45);
   return {
     minX: round(minX - margin),
     minY: round(minY - margin),
     width: round(maxX - minX + 2 * margin),
     height: round(maxY - minY + 2 * margin),
+  };
+}
+
+/**
+ * Move a sprite anchored at `p` (extending `half` to each side, `top`..`bottom` vertically, in
+ * user units) just enough to keep it inside `vb`. Used for the pirate on a cropped rim hex.
+ */
+export function clampSprite(
+  p: Point,
+  vb: ViewBox,
+  half: number,
+  top: number,
+  bottom: number,
+): Point {
+  const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
+  return {
+    x: clamp(p.x, vb.minX + half, vb.minX + vb.width - half),
+    y: clamp(p.y, vb.minY - top, vb.minY + vb.height - bottom),
   };
 }
 

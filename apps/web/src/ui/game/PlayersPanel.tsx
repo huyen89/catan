@@ -1,7 +1,9 @@
 import type { PlayerView } from '@hexhaven/engine';
+import { awardBadge, awardLabel, plural } from '../../game/labels';
+import { hasShips } from '../../game/prompt';
 import { useSession } from '../../store/session';
 import { useVoiceStore } from '../../voice/store';
-import { CardsIcon, DevIcon, KnightIcon, MicIcon } from '../icons';
+import { CardsIcon, DevIcon, KnightIcon, MicIcon, ShipIcon } from '../icons';
 import { useSeatMeta } from './seats';
 
 export function PlayersPanel({ view }: { view: PlayerView }) {
@@ -10,6 +12,8 @@ export function PlayersPanel({ view }: { view: PlayerView }) {
   const peers = useVoiceStore((s) => s.peers);
   const selfSpeaking = useVoiceStore((s) => s.speaking);
   const active = view.phase.kind === 'specialBuild' ? view.phase.seat : view.turn.current;
+  const seas = hasShips(view);
+  const variant = view.config.variant;
 
   return (
     <section className="panel players" aria-label="Players">
@@ -86,9 +90,23 @@ export function PlayersPanel({ view }: { view: PlayerView }) {
                   <span title="Knights played" aria-label={`${p.playedKnights} knights played`}>
                     <KnightIcon /> {p.playedKnights}
                   </span>
+                  {seas && (
+                    <span title="Ships left" aria-label={`${p.shipsLeft} ships left`}>
+                      <ShipIcon /> {p.shipsLeft}
+                    </span>
+                  )}
+                  {p.bonusVP > 0 && (
+                    <span
+                      className="award island"
+                      data-testid={`island-bonus-${p.seat}`}
+                      title={`Island bonus: ${plural(p.bonusVP, 'point')} for settling new islands`}
+                    >
+                      +{p.bonusVP} isle
+                    </span>
+                  )}
                   {view.longestRoad === p.seat && (
-                    <span className="award" title="Longest Road (+2 VP)">
-                      Road
+                    <span className="award" title={`${awardLabel('longestRoad', variant)} (+2 VP)`}>
+                      {awardBadge('longestRoad', variant)}
                     </span>
                   )}
                   {view.largestArmy === p.seat && (

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { emptyResources, totalResources, type PlayerView, type Resource } from '@hexhaven/engine';
+import { goldLimits, goldReady } from '../../game/gold';
 import { RESOURCE_LABEL, plural } from '../../game/labels';
 import { rematchRole } from '../../game/lobby';
 import { discardLimits, discardReady } from '../../game/trade';
@@ -60,14 +61,65 @@ function DiscardPicker(props: { view: PlayerView; busy: boolean; count: number }
   );
 }
 
+export function GoldDialog({ view, busy }: { view: PlayerView; busy: boolean }) {
+  const count = view.legal?.goldCount ?? 0;
+  if (count <= 0 || !view.legal?.actions.includes('CHOOSE_GOLD')) return null;
+  // Keyed like the discard dialog: a new or changed count starts a fresh pick.
+  return <GoldPicker key={count} view={view} busy={busy} count={count} />;
+}
+
+function GoldPicker(props: { view: PlayerView; busy: boolean; count: number }) {
+  const { view, busy, count } = props;
+  const send = useGameStore((s) => s.send);
+  const [sel, setSel] = useState(emptyResources);
+  const chosen = totalResources(sel);
+
+  const confirm = async () => {
+    if (await send({ type: 'CHOOSE_GOLD', resources: sel })) setSel(emptyResources());
+  };
+
+  return (
+    <Modal title={`Gold: choose ${plural(count, 'resource')}`} testId="gold-dialog">
+      <p>
+        Your gold field paid out. Take any {plural(count, 'resource')} from the bank ({chosen}/
+        {count} chosen).
+      </p>
+      <ResourceCounter
+        label="Take"
+        testPrefix="gold"
+        counts={sel}
+        onChange={(next) => totalResources(next) <= count && setSel(next)}
+        max={goldLimits(sel, count, view.bank)}
+        disabled={busy}
+      />
+      <div className="actions">
+        <button
+          type="button"
+          className="primary"
+          data-testid="gold-confirm"
+          disabled={busy || !goldReady(sel, count, view.bank)}
+          onClick={confirm}
+        >
+          Take {chosen}/{count}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 export function StealDialog({ view, busy }: { view: PlayerView; busy: boolean }) {
   const send = useGameStore((s) => s.send);
   const { nameOf, colorOf } = useSeatMeta();
   if (view.phase.kind !== 'steal' || view.turn.current !== view.viewer) return null;
   const victims = view.legal?.stealVictims.length ? view.legal.stealVictims : view.phase.candidates;
+  const pirate = view.phase.via === 'pirate';
   return (
-    <Modal title="Steal a card" testId="steal-dialog">
-      <p>Choose a player to steal one random card from.</p>
+    <Modal title={pirate ? 'Pirate raid' : 'Steal a card'} testId="steal-dialog">
+      <p data-testid="steal-via" data-via={view.phase.via}>
+        {pirate
+          ? 'The pirate raids a ship next to it. Choose a ship owner to steal one random card from.'
+          : 'Choose a player to steal one random card from.'}
+      </p>
       <div className="victims">
         {victims.map((s) => (
           <button

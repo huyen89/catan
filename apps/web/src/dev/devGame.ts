@@ -26,12 +26,39 @@ import {
 } from '@hexhaven/engine';
 import type { GameStatePayload, RoomInfo, SeatInfo } from '@hexhaven/shared';
 import { seatColor } from '../game/colors';
+import {
+  placeSeasDemo,
+  seasLegal,
+  seasScene,
+  type DevScene,
+  type DevScenario,
+} from './seasFixture';
 
 export const DEV_NAMES = ['Alice', 'Bruno', 'Chen', 'Dana', 'Emeka', 'Freya'];
 
-export function createDevGame(players: number, seed: string, demo: boolean): GameState {
-  const state = createGame(normalizeConfig({ players }), seed);
-  return demo ? populateDemo(state) : state;
+export interface DevGameOptions {
+  /** An Open Seas scenario: the game uses the 'seafarers' variant. */
+  scenario?: DevScenario;
+  /** Open Seas demo positions for dialogs and highlights (see seasScene). */
+  scene?: DevScene;
+}
+
+export function createDevGame(
+  players: number,
+  seed: string,
+  demo: boolean,
+  opts: DevGameOptions = {},
+): GameState {
+  const config = opts.scenario
+    ? normalizeConfig({ players, variant: 'seafarers', scenario: opts.scenario })
+    : normalizeConfig({ players });
+  const state = createGame(config, seed);
+  if (!opts.scenario) return demo ? populateDemo(state) : state;
+  if (!demo) return state;
+  if (opts.scene === 'setup') return seasScene(state, 'setup');
+  placeSeasDemo(state);
+  finishDemo(state);
+  return seasScene(state, opts.scene ?? 'main');
 }
 
 function take(state: GameState, seat: Seat, r: Partial<ResourceCounts>): void {
@@ -45,6 +72,12 @@ function take(state: GameState, seat: Seat, r: Partial<ResourceCounts>): void {
 
 /** Mutates and returns `state`: two settlements + roads per player, cards, an open trade. */
 export function populateDemo(state: GameState): GameState {
+  placeBaseDemo(state);
+  return finishDemo(state);
+}
+
+/** Two settlements per player spread around the board, each with a road (3 for seat 0). */
+function placeBaseDemo(state: GameState): void {
   const g = graphFor(state.board);
   const n = state.players.length;
   const free = (v: string) =>
@@ -72,6 +105,11 @@ export function populateDemo(state: GameState): GameState {
       }
     }
   }
+}
+
+/** Seat 0's first building becomes a city; cards, dev cards, robber, a main turn, a trade. */
+function finishDemo(state: GameState): GameState {
+  const n = state.players.length;
   const firstOwn = Object.entries(state.buildings).find(([, b]) => b.owner === 0);
   if (firstOwn) {
     firstOwn[1].kind = 'city';
@@ -198,7 +236,10 @@ export function approximateLegal(state: GameState, seat: Seat): LegalSummary {
 
 export function devView(state: GameState, seat: Seat, demo: boolean): PlayerView {
   const view = toPlayerView(state, seat);
-  if (demo && view.legal) view.legal = approximateLegal(state, seat);
+  if (demo && view.legal) {
+    view.legal = approximateLegal(state, seat);
+    if (state.config.variant === 'seafarers') view.legal = seasLegal(state, seat, view.legal);
+  }
   return view;
 }
 
@@ -221,7 +262,7 @@ export function devPayload(
   };
 }
 
-export function devRoom(players: number): RoomInfo {
+export function devRoom(players: number, scenario?: DevScenario): RoomInfo {
   const seats: SeatInfo[] = Array.from({ length: players }, (_, i) => ({
     index: i,
     kind: i === 0 ? 'human' : i % 2 ? 'bot' : 'human',
@@ -243,7 +284,8 @@ export function devRoom(players: number): RoomInfo {
     status: 'in_game',
     settings: {
       maxSeats: players,
-      variant: 'auto',
+      variant: scenario ? 'seafarers' : 'auto',
+      ...(scenario && { scenario }),
       vpToWin: 10,
       discardLimit: 7,
       numberMode: 'random',

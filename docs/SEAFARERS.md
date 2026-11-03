@@ -90,6 +90,7 @@ In-product name: **Open Seas**. Variant id: `seafarers`. Original scenario names
 ### Layouts and variants
 
 - `LayoutDef` gains optional `fixedHexes?: FixedHex[]` (`{q, r, terrain, token?}`). These hexes keep their terrain and token, and are excluded from `terrainPool` and `tokenPool`. A fixed producing hex (gold included) must carry its token. All other fields are unchanged: pools cover the remaining hexes. `layout.hexes` lists every hex, sea included.
+- `LayoutDef` also gains optional `regionPools?: RegionPool[]` (`{hexes, terrainPool, tokenPool}`): pool hexes with their own pools, shuffled and numbered separately and excluded from the global `terrainPool`/`tokenPool`. Region hexes are never fixed and never in two regions. Pools never contain sea (sea is always fixed). `seaMap` fills regions from the digit characters `1`-`9` of a scenario map.
 - Also new on `LayoutDef` (all optional; base/ext56 set none):
   - `name?: string`: display name for the lobby.
   - `homeHexes?: HexId[]`: islands that contain any of these are home islands.
@@ -107,13 +108,15 @@ In-product name: **Open Seas**. Variant id: `seafarers`. Original scenario names
 - `SCENARIOS`, `SCENARIO_IDS` and `ScenarioId` are exported. The shared `roomSettings.scenario`
   enum is built from `SCENARIO_IDS`.
 - Scenarios (maps are ASCII in `board/layouts.ts`; sea, desert and gold hexes are fixed, the other
-  land hexes draw from the pools):
+  land hexes draw from the pools; fixed-mode port slots all sit on home islands):
   - **`newShores`** "New Shores" (3–4 players): a 19-hex home island and 3 small islands (2, 3 and
-    2 hexes, one gold), 14 VP. The robber starts on the fixed desert.
+    2 hexes, one gold), 14 VP. The robber starts on the fixed desert. The small islands form one
+    region (one of each terrain plus the pool gold, tokens 3 4 5 9 10 11), so the pool gold never
+    lands on the home island.
   - **`archipelago`** "Archipelago" (3–4 players): four 5-hex home islands around a 1-hex gold islet,
-    13 VP. No desert: the robber starts on the gold islet.
+    13 VP. No desert: the robber starts on the gold islet (token 4). Fixed ports: 2 per home island.
   - **`grandVoyage`** "Grand Voyage" (5–6 players): a 27-hex home island and 4 islets (one gold),
-    14 VP, ext56 deck and bank, special build phase.
+    14 VP, ext56 deck and bank, special build phase. The islets form one region like New Shores'.
 - `BoardGraph` gains:
   - `landHexes: HexId[]`
   - `islandOf: Record<HexId, number>`
@@ -123,7 +126,7 @@ In-product name: **Open Seas**. Variant id: `seafarers`. Original scenario names
   - Existing boards have no sea hexes, so `landHexes`, `landVertices` and `roadEdges` equal the full sets, `seaEdges` is empty, and base behaviour is unchanged.
   - `coastEdges` is the edges touching exactly one land hex. On a sea-framed board these are the land|sea edges. The walk covers each coastline as one closed cycle, and the cycles follow one another.
 - `buildGraph(hexes)` and `graphFor(board)` read each hex's optional `terrain`. Only sea vs land matters, and a hex without terrain is land. The memo key includes the sea pattern. **Warning:** bare layout coordinates (no terrain) give an all-land graph; use `graphFor(board)` for real boards.
-- `generateBoard` supports `fixedHexes` (minimal support in the contract PR), builds the port graph from the generated hexes and fills `homeIslands`/`islandBonusVP`. The spiral number mode is skipped for layouts with fixed hexes. In random port mode, a coast made of several cycles uses a shuffled greedy pick of coastal edges that share no vertex (a one-cycle coast keeps the old algorithm and output); GEN may replace it with a uniform per-island scheme.
+- `generateBoard` keeps fixed hexes, shuffles each pool group (global pools, then each region) over its hexes, builds the port graph from the generated hexes and fills `homeIslands`/`islandBonusVP`. Layout checks (pool counts, fixed tokens, regions, home hexes on land) run once per layout. Numbers: each group is placed in turn with fixed and earlier-placed tokens counting as neighbours: no adjacent 6/8, and when achievable no equal neighbours and no 6/8 on gold; the spiral mode is skipped for layouts with fixed hexes or regions. Ports never share a vertex. Fixed mode uses `portSlots` (indices into `coastEdges`). Random mode splits the coast walk into its closed coastlines, gives the home islands' coastlines ports in proportion to their length (equal remainders broken by the seed), places them uniformly on each coastline with a free edge between ports, and uses other islands only when the home coasts are full. Base and ext56 output is bit-identical to before (golden hashes in `board/golden.test.ts`).
 - `ENGINE_VERSION` is now 2. `upgradeState(state)` fills the new fields with defaults on old snapshots and sets `engineVersion`. It is pure and idempotent, throws for a state from a newer engine, and the server calls it on load (`recoverGameState`).
 
 ### Server and shared

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import type { Action } from '@hexhaven/engine';
+import type { Action, EdgeId } from '@hexhaven/engine';
 import type { C2SPayload, GameStatePayload } from '@hexhaven/shared';
-import { sanitizeMode, type UiMode } from '../game/highlights';
+import { sanitizeMode, sanitizeShipFrom, type Piece, type UiMode } from '../game/highlights';
 import { errorMessage } from '../net/emit';
 import { emitAck } from '../net/socket';
 import { soundsFor } from '../sound/events';
@@ -16,11 +16,17 @@ const socketSink: ActionSink = (payload) => emitAck('game:action', payload);
 
 interface GameStore extends GameSlice {
   mode: UiMode;
+  /** Road or ship, for placements that allow either (setup, Road Building). */
+  piece: Piece;
+  /** Ship picked in moveShip mode. */
+  shipFrom: EdgeId | null;
   /** An action is in flight; game controls are disabled until its ack arrives. */
   busy: boolean;
   sink: ActionSink;
   ingest(p: GameStatePayload): void;
   setMode(mode: UiMode): void;
+  setPiece(piece: Piece): void;
+  setShipFrom(edge: EdgeId | null): void;
   /** Submit an action. Resolves true on a successful ack; errors are shown as a toast. */
   send(action: Action): Promise<boolean>;
   setSink(sink: ActionSink | null): void;
@@ -30,6 +36,8 @@ interface GameStore extends GameSlice {
 export const useGameStore = create<GameStore>((set, get) => ({
   ...emptyGameSlice(),
   mode: null,
+  piece: 'road',
+  shipFrom: null,
   busy: false,
   sink: socketSink,
   ingest(p) {
@@ -38,11 +46,23 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (next === prev) return;
     const turnChanged = prev.payload?.view.turn.current !== p.view.turn.current;
     const sounds = soundsFor(prev.payload, p);
-    set({ ...next, mode: turnChanged ? null : sanitizeMode(p.view, prev.mode) });
+    const mode = turnChanged ? null : sanitizeMode(p.view, prev.mode);
+    set({
+      ...next,
+      mode,
+      shipFrom: sanitizeShipFrom(p.view, mode, prev.shipFrom),
+      piece: turnChanged ? 'road' : prev.piece,
+    });
     if (sounds.length && !useSoundStore.getState().muted) playSounds(sounds);
   },
   setMode(mode) {
-    set({ mode });
+    set({ mode, shipFrom: null });
+  },
+  setPiece(piece) {
+    set({ piece });
+  },
+  setShipFrom(shipFrom) {
+    set({ shipFrom });
   },
   async send(action) {
     const { payload, busy, sink } = get();
@@ -62,6 +82,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({ sink: sink ?? socketSink });
   },
   reset() {
-    set({ ...emptyGameSlice(), mode: null, busy: false });
+    set({ ...emptyGameSlice(), mode: null, piece: 'road', shipFrom: null, busy: false });
   },
 }));
