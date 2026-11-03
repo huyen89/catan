@@ -118,6 +118,14 @@ export function eventText(e: GameEvent, ctx: EventTextContext): string {
       return `Turn ${e.turn}: ${n(e.seat)}`;
     case 'specialBuildTurn':
       return `${n(e.seat)} may build (special build phase)`;
+    case 'shipMoved':
+      return `${n(e.seat)} moved a ship`;
+    case 'pirateMoved':
+      return `${n(e.seat)} moved the pirate to ${ctx.hexLabel(e.hex)}`;
+    case 'goldChosen':
+      return `${n(e.seat)} took ${formatCounts(e.resources)} from gold`;
+    case 'islandBonus':
+      return `${n(e.seat)} settled a new island (+${plural(e.vp, 'point')})`;
     case 'gameOver':
       return `${n(e.winner)} wins with ${plural(e.vp[e.winner] ?? 0, 'point')}!`;
   }

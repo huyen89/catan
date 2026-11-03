@@ -14,6 +14,8 @@ import { BotPlayer, type BotOptions } from '@hexhaven/bot';
 export interface EngineApi {
   normalizeConfig(partial: Partial<GameConfig> & { players: number }): GameConfig;
   createGame(config: GameConfig, seed: string): GameState;
+  /** Fill fields added by newer engine versions into a persisted state (idempotent). */
+  upgradeState(state: GameState): GameState;
   applyAction(state: GameState, seat: Seat, action: Action): ApplyResult;
   toPlayerView(state: GameState, viewer: Seat | null): PlayerView;
   redactEvent(event: GameEvent, viewer: Seat | null): GameEvent | null;
@@ -32,6 +34,7 @@ export type BotFactory = (opts: BotOptions) => SeatBot;
 export const realEngine: EngineApi = {
   normalizeConfig: engine.normalizeConfig,
   createGame: engine.createGame,
+  upgradeState: engine.upgradeState,
   applyAction: engine.applyAction,
   toPlayerView: engine.toPlayerView,
   redactEvent: engine.redactEvent,

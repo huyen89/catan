@@ -5,11 +5,12 @@ import { devCardHandlers } from './rules/devcards';
 import { maritimeHandlers } from './rules/maritime';
 import { robberHandlers } from './rules/robber';
 import { rollHandlers } from './rules/roll';
+import { seafarersHandlers } from './rules/seafarers';
 import { setupHandlers } from './rules/setup';
 import { tradeHandlers } from './rules/trade';
 import { turnHandlers } from './rules/turn';
 import type { Action, ActionType, ApplyResult, GameState, Seat } from './types';
-import { VARIANTS } from './variants';
+import { variantFor } from './variants';
 
 /** Action type → handler. Each rules/* module owns its entries (see CLAUDE.md ownership map). */
 export const HANDLERS: HandlerMap = {
@@ -21,6 +22,7 @@ export const HANDLERS: HandlerMap = {
   ...tradeHandlers,
   ...maritimeHandlers,
   ...turnHandlers,
+  ...seafarersHandlers,
 };
 
 /**
@@ -46,7 +48,7 @@ export function applyAction(state: GameState, seat: Seat, action: Action): Apply
     seat,
     events: [],
     graph: graphFor(state.board),
-    variant: VARIANTS[state.config.variant],
+    variant: variantFor(state.config),
   };
   const e = handler(ctx, action as never);
   if (e) return { ok: false, error: e };

@@ -6,7 +6,7 @@ type View = Pick<PlayerView, 'viewer' | 'turn' | 'phase' | 'pendingActors'>;
 
 const view = (patch: Partial<View> = {}): View => ({
   viewer: 1,
-  turn: { current: 0, number: 3, dice: null, devPlayed: false },
+  turn: { current: 0, number: 3, dice: null, devPlayed: false, shipMoved: false, newShips: [] },
   phase: { kind: 'main' },
   pendingActors: [0],
   ...patch,
@@ -61,7 +61,9 @@ describe('soundsFor', () => {
   });
 
   it('chimes when it becomes my move, not while it stays mine', () => {
-    const mine = view({ turn: { current: 1, number: 4, dice: null, devPlayed: false } });
+    const mine = view({
+      turn: { current: 1, number: 4, dice: null, devPlayed: false, shipMoved: false, newShips: [] },
+    });
     const started: GameEvent[] = [{ type: 'turnStarted', seat: 1, turn: 4 }];
     expect(soundsFor(snap(7), next(8, started, mine))).toEqual(['yourTurn']);
     expect(soundsFor(snap(8, mine), next(9, [], mine))).toEqual([]);

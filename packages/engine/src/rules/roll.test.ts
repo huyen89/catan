@@ -85,7 +85,7 @@ describe('roll and production (RULES.md#turn)', () => {
     const s = rollTo(productionBoard(), 7);
     give(s, 1, { brick: 7 });
     const state = expectOk(s, 0, { type: 'ROLL' }).state;
-    expect(state.phase).toEqual({ kind: 'moveRobber', returnTo: 'main' });
+    expect(state.phase).toEqual({ kind: 'moveRobber', returnTo: 'main', allowPirate: false });
   });
 
   it('a 7 requires everyone over discardLimit to discard floor(n/2)', () => {

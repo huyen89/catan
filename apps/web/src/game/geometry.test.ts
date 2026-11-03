@@ -69,7 +69,10 @@ describe('boardViewBox', () => {
   });
 
   it('handles an empty board', () => {
-    expect(boardViewBox({ layoutId: 'x', hexes: [], ports: [] }).width).toBeGreaterThan(0);
+    expect(
+      boardViewBox({ layoutId: 'x', hexes: [], ports: [], homeIslands: [], islandBonusVP: 0 })
+        .width,
+    ).toBeGreaterThan(0);
   });
 });
 

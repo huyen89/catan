@@ -201,6 +201,33 @@ describe('lobby', () => {
     });
   });
 
+  it('Open Seas: scenario VP targets follow the settings; starting waits for the rules', async () => {
+    srv = await startServer();
+    const host = await player(srv.url, 'Host');
+    const room = await ok(host.socket, 'room:create', {
+      settings: { maxSeats: 3, variant: 'seafarers', scenario: 'archipelago' },
+    });
+    expect(room.settings.vpToWin).toBe(13);
+    const settle = async (settings: Record<string, unknown>) => {
+      const st = next(host.socket, 'room:state');
+      await ok(host.socket, 'room:settings', { settings });
+      return (await st).settings;
+    };
+    expect((await settle({ scenario: 'newShores' })).vpToWin).toBe(14);
+    expect((await settle({ vpToWin: 11 })).vpToWin).toBe(11);
+    // Changing something unrelated keeps a custom target.
+    expect((await settle({ discardLimit: 9 })).vpToWin).toBe(11);
+    expect((await settle({ scenario: 'archipelago', vpToWin: 12 })).vpToWin).toBe(12);
+    expect((await settle({ variant: 'base' })).vpToWin).toBe(10);
+    expect((await settle({ variant: 'seafarers' })).vpToWin).toBe(13);
+
+    for (const seat of [1, 2]) await ok(host.socket, 'room:addBot', { seat, difficulty: 'easy' });
+    expect(await emit(host.socket, 'room:start', {})).toMatchObject({
+      ok: false,
+      error: { code: 'VARIANT_NOT_READY' },
+    });
+  });
+
   it('passes host to the next human when the host leaves; kicked users cannot rejoin', async () => {
     srv = await startServer();
     const host = await player(srv.url, 'Host');

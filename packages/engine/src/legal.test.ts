@@ -20,7 +20,13 @@ describe('getLegal', () => {
     give(s, 0, { ...COSTS.city, wool: 1 });
     let legal = getLegal(s, 0);
     expect(legal.actions).toEqual(['BUILD_CITY', 'BUY_DEV', 'OFFER_TRADE', 'END_TURN']);
-    expect(legal.canAfford).toEqual({ road: false, settlement: false, city: true, devCard: true });
+    expect(legal.canAfford).toEqual({
+      road: false,
+      settlement: false,
+      city: true,
+      devCard: true,
+      ship: false,
+    });
     expect(legal.cityVertices).toEqual(['0,0,N']);
     expect(legal.roadEdges).toHaveLength(3);
     expect(legal.settlementVertices).toEqual([]);

@@ -57,6 +57,12 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('CANCEL_TRADE'), offerId: z.number().int().positive() }),
   z.strictObject({ type: z.literal('END_TURN') }),
   z.strictObject({ type: z.literal('PASS_SPECIAL_BUILD') }),
+  // Open Seas ('seafarers').
+  z.strictObject({ type: z.literal('PLACE_SHIP'), edge: id }),
+  z.strictObject({ type: z.literal('BUILD_SHIP'), edge: id }),
+  z.strictObject({ type: z.literal('MOVE_SHIP'), from: id, to: id }),
+  z.strictObject({ type: z.literal('MOVE_PIRATE'), hex: id }),
+  z.strictObject({ type: z.literal('CHOOSE_GOLD'), resources: resourceCountsSchema }),
 ]);
 
 // Compile-time check that the schema and the engine union agree in both directions.

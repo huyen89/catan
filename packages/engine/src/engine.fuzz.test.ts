@@ -50,6 +50,11 @@ const ACTION_TYPES: ActionType[] = [
   'CANCEL_TRADE',
   'END_TURN',
   'PASS_SPECIAL_BUILD',
+  'PLACE_SHIP',
+  'BUILD_SHIP',
+  'MOVE_SHIP',
+  'MOVE_PIRATE',
+  'CHOOSE_GOLD',
 ];
 
 /** Payload fields per action type (all fields any handler reads). */
@@ -75,6 +80,11 @@ const FIELDS: Record<ActionType, string[]> = {
   CANCEL_TRADE: ['offerId'],
   END_TURN: [],
   PASS_SPECIAL_BUILD: [],
+  PLACE_SHIP: ['edge'],
+  BUILD_SHIP: ['edge'],
+  MOVE_SHIP: ['from', 'to'],
+  MOVE_PIRATE: ['hex'],
+  CHOOSE_GOLD: ['resources'],
 };
 
 // ---------------------------------------------------------------- garbage generators

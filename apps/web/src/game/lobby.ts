@@ -28,7 +28,9 @@ export function rematchRole(
 }
 
 /** The board variant a room will actually use ('auto' → base for 3–4 seats, ext56 for 5–6). */
-export function effectiveVariant(s: Pick<RoomSettings, 'variant' | 'maxSeats'>): 'base' | 'ext56' {
+export function effectiveVariant(
+  s: Pick<RoomSettings, 'variant' | 'maxSeats'>,
+): Exclude<RoomSettings['variant'], 'auto'> {
   if (s.variant !== 'auto') return s.variant;
   return s.maxSeats >= 5 ? 'ext56' : 'base';
 }

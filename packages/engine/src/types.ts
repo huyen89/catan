@@ -17,7 +17,8 @@ export type Terrain =
   | 'fields' // grain
   | 'mountains' // ore
   | 'desert'
-  // Reserved for future variants (Seafarers):
+  // Open Seas (variant 'seafarers'): sea carries ships and no token; gold carries a token and
+  // yields a resource of the owner's choice.
   | 'sea'
   | 'gold';
 
@@ -56,13 +57,13 @@ export interface Hex {
   q: number;
   r: number;
   terrain: Terrain;
-  /** Number token 2..12 (never 7), null for desert/sea. */
+  /** Number token 2..12 (never 7), null for desert/sea. Gold hexes carry a token. */
   token: number | null;
 }
 
 export interface Port {
   type: PortType;
-  /** Coastal edge the port sits on. Both endpoints get the port. */
+  /** Coastal edge the port sits on (land|sea on sea-framed boards). Both endpoints get the port. */
   edge: EdgeId;
   vertices: [VertexId, VertexId];
 }
@@ -71,11 +72,19 @@ export interface Board {
   layoutId: string;
   hexes: Hex[];
   ports: Port[];
+  /**
+   * Home islands (indices into graphFor(board).islandOf): setup settlements go only there. Every
+   * island when the layout names none, so [0] on base/ext56 boards.
+   */
+  homeIslands: number[];
+  /** VP for a player's first settlement on each non-home island; 0 without islands. */
+  islandBonusVP: number;
 }
 
 // ---------------------------------------------------------------- config
 
-export type VariantId = 'base' | 'ext56';
+/** 'seafarers' is the Open Seas variant: sea-framed scenario boards, ships, pirate, gold. */
+export type VariantId = 'base' | 'ext56' | 'seafarers';
 /** 'random' = shuffled tokens with no adjacent 6/8; 'spiral' = official A–R spiral (base only). */
 export type NumberMode = 'random' | 'spiral';
 /** 'fixed' = standard port slots with shuffled types; 'random' = random coastal slots. */
@@ -90,6 +99,11 @@ export interface GameConfig {
   discardLimit: number;
   numberMode: NumberMode;
   portMode: PortMode;
+  /**
+   * Scenario id (a key of `VariantDef.scenarios`) for variants that have scenarios ('seafarers').
+   * normalizeConfig fills the default for the player count; ignored (and dropped) otherwise.
+   */
+  scenario?: string;
 }
 
 export const DEFAULT_CONFIG: Omit<GameConfig, 'players' | 'variant'> = {
@@ -117,8 +131,15 @@ export interface PlayerState {
   roadsLeft: number;
   settlementsLeft: number;
   citiesLeft: number;
-  /** Cached longest-trail length for this player (recomputed after every road/settlement). */
+  /**
+   * Cached longest-trail length for this player (recomputed after every road/settlement). With
+   * ships this is the trade-route length (roads and ships together).
+   */
   longestRoadLength: number;
+  /** Ships in supply. 0 in variants without ships. */
+  shipsLeft: number;
+  /** VP from island bonuses (public). 0 in variants without islands. */
+  bonusVP: number;
 }
 
 // ---------------------------------------------------------------- trading
@@ -155,8 +176,19 @@ export type Phase =
       /** seat (as string key) -> number of cards still to discard. */
       pending: Record<string, number>;
     }
-  | { kind: 'moveRobber'; returnTo: 'preRoll' | 'main' }
-  | { kind: 'steal'; candidates: Seat[]; returnTo: 'preRoll' | 'main' }
+  | {
+      kind: 'moveRobber';
+      returnTo: 'preRoll' | 'main';
+      /** The mover may move the pirate (MOVE_PIRATE) instead of the robber. False without sea. */
+      allowPirate: boolean;
+    }
+  | {
+      kind: 'steal';
+      candidates: Seat[];
+      returnTo: 'preRoll' | 'main';
+      /** Robber: candidates own a building on the hex. Pirate: a ship on one of its edges. */
+      via: 'robber' | 'pirate';
+    }
   | { kind: 'main' }
   | { kind: 'roadBuilding'; remaining: number }
   | {
@@ -165,6 +197,20 @@ export type Phase =
       seat: Seat;
       /** Seats still to go after `seat`, in order. */
       queue: Seat[];
+    }
+  | {
+      kind: 'goldChoice';
+      /**
+       * seat (as string key) -> number of resources still to choose from gold hexes. Every listed
+       * seat chooses at the same time (like discard); the phase ends when all are done.
+       */
+      pending: Record<string, number>;
+      /**
+       * The exact phase to restore once every choice is made: `main` after a production roll,
+       * the next `setup` step (index/step/lastSettlement) or `preRoll` after a second setup
+       * settlement next to gold.
+       */
+      resume: Extract<Phase, { kind: 'setup' | 'preRoll' | 'main' }>;
     }
   | { kind: 'gameOver'; winner: Seat };
 
@@ -181,6 +227,10 @@ export interface TurnState {
   dice: [number, number] | null;
   /** A dev card has been played this turn. */
   devPlayed: boolean;
+  /** A ship has been moved this turn (at most one MOVE_SHIP per turn). */
+  shipMoved: boolean;
+  /** Ships placed this turn; they cannot be moved until a later turn. */
+  newShips: EdgeId[];
 }
 
 export interface GameState {
@@ -193,6 +243,12 @@ export interface GameState {
   robber: HexId;
   buildings: Record<VertexId, Building>;
   roads: Record<EdgeId, Seat>;
+  /** Ships by edge. Empty in variants without ships. */
+  ships: Record<EdgeId, Seat>;
+  /** Sea hex the pirate sits on; null on boards without sea. */
+  pirate: HexId | null;
+  /** Island index (BoardGraph.islandOf, as string key) -> seats that already got its bonus. */
+  islandBonus: Record<string, Seat[]>;
   players: PlayerState[];
   bank: ResourceCounts;
   /** Remaining dev deck, top = last element. Hidden. */
@@ -238,24 +294,39 @@ export type Action =
   | { type: 'CONFIRM_TRADE'; offerId: number; with: Seat }
   | { type: 'CANCEL_TRADE'; offerId: number }
   | { type: 'END_TURN' }
-  | { type: 'PASS_SPECIAL_BUILD' };
+  | { type: 'PASS_SPECIAL_BUILD' }
+  // Open Seas ('seafarers'):
+  /** Setup: the piece after a settlement may be a ship instead of a road. */
+  | { type: 'PLACE_SHIP'; edge: EdgeId }
+  /** Build a ship (main / specialBuild), or place a free one during roadBuilding. */
+  | { type: 'BUILD_SHIP'; edge: EdgeId }
+  /** Move the open-ended ship on `from` to `to` (once per turn, after rolling). */
+  | { type: 'MOVE_SHIP'; from: EdgeId; to: EdgeId }
+  /** In moveRobber with allowPirate: move the pirate to a sea hex instead of the robber. */
+  | { type: 'MOVE_PIRATE'; hex: HexId }
+  /** In goldChoice: the resources picked; total must equal the seat's pending count. */
+  | { type: 'CHOOSE_GOLD'; resources: ResourceCounts };
 
 export type ActionType = Action['type'];
 
 // ---------------------------------------------------------------- events (for log/animation)
 
 export type GameEvent =
-  | { type: 'setupPlaced'; seat: Seat; kind: 'settlement' | 'road'; at: string }
-  | { type: 'setupResources'; seat: Seat; resources: ResourceCounts }
+  | { type: 'setupPlaced'; seat: Seat; kind: 'settlement' | 'road' | 'ship'; at: string }
+  /** `gold`: resources still to choose from adjacent gold hexes (goldChoice follows); absent if 0. */
+  | { type: 'setupResources'; seat: Seat; resources: ResourceCounts; gold?: number }
   | { type: 'rolled'; seat: Seat; dice: [number, number]; total: number }
-  /** Per-seat gains from a production roll. Keys are seats as strings. */
-  | { type: 'produced'; gains: Record<string, ResourceCounts> }
+  /**
+   * Per-seat gains from a production roll. Keys are seats as strings. `gold`: gold-hex yields
+   * each seat must still choose (goldChoice phase follows); absent when there are none.
+   */
+  | { type: 'produced'; gains: Record<string, ResourceCounts>; gold?: Record<string, number> }
   | { type: 'discardRequired'; pending: Record<string, number> }
   | { type: 'discarded'; seat: Seat; resources: ResourceCounts }
   | { type: 'robberMoved'; seat: Seat; hex: HexId }
   /** `resource` is null in views of players other than thief and victim. */
   | { type: 'stole'; thief: Seat; victim: Seat; resource: Resource | null }
-  | { type: 'built'; seat: Seat; kind: 'road' | 'settlement' | 'city'; at: string }
+  | { type: 'built'; seat: Seat; kind: 'road' | 'settlement' | 'city' | 'ship'; at: string }
   /** `card` is null in views of other players. */
   | { type: 'boughtDev'; seat: Seat; card: DevCardType | null }
   | { type: 'playedDev'; seat: Seat; card: DevCardType }
@@ -276,6 +347,11 @@ export type GameEvent =
   | { type: 'awardChanged'; award: 'longestRoad' | 'largestArmy'; holder: Seat | null }
   | { type: 'turnStarted'; seat: Seat; turn: number }
   | { type: 'specialBuildTurn'; seat: Seat }
+  | { type: 'shipMoved'; seat: Seat; from: EdgeId; to: EdgeId }
+  | { type: 'pirateMoved'; seat: Seat; hex: HexId }
+  | { type: 'goldChosen'; seat: Seat; resources: ResourceCounts }
+  /** First settlement of `seat` on a non-home island (BoardGraph.islandOf index). */
+  | { type: 'islandBonus'; seat: Seat; island: number; vp: number }
   | { type: 'gameOver'; winner: Seat; vp: number[] };
 
 // ---------------------------------------------------------------- results & errors
@@ -321,7 +397,22 @@ export interface LegalSummary {
   maritimeRatios: ResourceCounts;
   /** Dev card types this seat could play now. */
   playableDev: DevCardType[];
-  canAfford: { road: boolean; settlement: boolean; city: boolean; devCard: boolean };
+  /** Valid edges for PLACE_SHIP / BUILD_SHIP (ignores affordability for BUILD_SHIP). */
+  shipEdges: EdgeId[];
+  /** Movable ship edge -> edges it may move to (MOVE_SHIP). */
+  shipMoves: Record<EdgeId, EdgeId[]>;
+  /** Valid hexes for MOVE_PIRATE. */
+  pirateHexes: HexId[];
+  /** Resources this seat must choose from gold (0 if none). */
+  goldCount: number;
+  /** Affordability only (pieces left and locations are in the lists above). */
+  canAfford: {
+    road: boolean;
+    settlement: boolean;
+    city: boolean;
+    devCard: boolean;
+    ship: boolean;
+  };
 }
 
 // ---------------------------------------------------------------- redacted views
@@ -335,6 +426,9 @@ export interface PublicPlayer {
   settlementsLeft: number;
   citiesLeft: number;
   longestRoadLength: number;
+  shipsLeft: number;
+  /** Island-bonus VP (already included in publicVP). */
+  bonusVP: number;
   /** VP visible to everyone (excludes hidden VP cards until game over). */
   publicVP: number;
   /** Only present for the viewer themself, or for everyone once the game is over. */
@@ -353,6 +447,9 @@ export interface PlayerView {
   robber: HexId;
   buildings: Record<VertexId, Building>;
   roads: Record<EdgeId, Seat>;
+  ships: Record<EdgeId, Seat>;
+  pirate: HexId | null;
+  islandBonus: Record<string, Seat[]>;
   players: PublicPlayer[];
   bank: ResourceCounts;
   devDeckCount: number;

@@ -45,7 +45,11 @@ function emptySummary(): LegalSummary {
     discardCount: 0,
     maritimeRatios: { brick: 4, lumber: 4, wool: 4, grain: 4, ore: 4 },
     playableDev: [],
-    canAfford: { road: false, settlement: false, city: false, devCard: false },
+    shipEdges: [],
+    shipMoves: {},
+    pirateHexes: [],
+    goldCount: 0,
+    canAfford: { road: false, settlement: false, city: false, devCard: false, ship: false },
   };
 }
 
@@ -128,6 +132,7 @@ export function getLegal(state: GameState, seat: Seat): LegalSummary {
     settlement: hasResources(p.resources, COSTS.settlement),
     city: hasResources(p.resources, COSTS.city),
     devCard: hasResources(p.resources, COSTS.devCard),
+    ship: hasResources(p.resources, COSTS.ship),
   };
   const ph = state.phase;
   const isCurrent = seat === state.turn.current;
@@ -152,6 +157,10 @@ export function getLegal(state: GameState, seat: Seat): LegalSummary {
     case 'discard':
       out.discardCount = ph.pending[String(seat)] ?? 0;
       if (out.discardCount > 0) out.actions.push('DISCARD');
+      break;
+    case 'goldChoice':
+      // CHOOSE_GOLD is listed by ENG together with its handler (stubbed for now).
+      out.goldCount = ph.pending[String(seat)] ?? 0;
       break;
     case 'moveRobber':
       if (!isCurrent) break;

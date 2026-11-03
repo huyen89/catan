@@ -16,7 +16,7 @@ import {
   type Terrain,
   type VertexId,
 } from '../types';
-import { VARIANTS } from '../variants';
+import { variantFor } from '../variants';
 import { randomLegalAction, seededRandom } from './randomPlay';
 
 /** A fresh game with a deterministic seed. */
@@ -122,7 +122,7 @@ export function ctxFor(state: GameState, seat: Seat = 0): Ctx {
     seat,
     events: [],
     graph: graphFor(state.board),
-    variant: VARIANTS[state.config.variant],
+    variant: variantFor(state.config),
   };
 }
 

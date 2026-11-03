@@ -675,7 +675,8 @@ function winnerOf(s: GameState): Seat | null {
 export function recoverGameState(engine: EngineApi, repos: Repos, gameId: string): GameState {
   const snapshot = repos.games.latestSnapshot(gameId);
   if (!snapshot) throw new Error(`game ${gameId} has no snapshot`);
-  let state = snapshot;
+  // Snapshots written by an older engine lack newer fields.
+  let state = engine.upgradeState(snapshot);
   for (const a of repos.games.actionsFrom(gameId, snapshot.version)) {
     if (a.idx !== state.version) {
       throw new Error(`game ${gameId}: action log gap at ${a.idx} (state v${state.version})`);

@@ -81,7 +81,14 @@ export function checkVictory(ctx: Ctx): void {
  */
 export function startTurn(ctx: Ctx, seat: Seat): void {
   const s = ctx.state;
-  s.turn = { current: seat, number: s.turn.number + 1, dice: null, devPlayed: false };
+  s.turn = {
+    current: seat,
+    number: s.turn.number + 1,
+    dice: null,
+    devPlayed: false,
+    shipMoved: false,
+    newShips: [],
+  };
   const p = s.players[seat]!;
   p.devCards.push(...p.newDevCards);
   p.newDevCards = [];

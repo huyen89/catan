@@ -82,6 +82,13 @@ export function buildAction(
       return oneOf(legal.robberHexes, (hex) => ({ type, hex }));
     case 'STEAL':
       return oneOf(legal.stealVictims, (victim) => ({ type, victim }));
+    // Open Seas actions: ENG adds payload builders together with the rules.
+    case 'PLACE_SHIP':
+    case 'BUILD_SHIP':
+    case 'MOVE_SHIP':
+    case 'MOVE_PIRATE':
+    case 'CHOOSE_GOLD':
+      return null;
     case 'ROLL':
     case 'BUY_DEV':
     case 'PLAY_KNIGHT':

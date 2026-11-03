@@ -63,7 +63,7 @@ const playKnight: Handler<'PLAY_KNIGHT'> = (ctx) => {
   if (bad) return bad;
   s.players[ctx.seat]!.playedKnights++;
   updateLargestArmy(ctx, ctx.seat);
-  s.phase = { kind: 'moveRobber', returnTo };
+  s.phase = { kind: 'moveRobber', returnTo, allowPirate: false };
 };
 
 /** Free roads available right now: min(2, roads left), or 0 if no edge is buildable. */

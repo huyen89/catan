@@ -33,6 +33,9 @@ export const STATE_VISIBILITY: Record<keyof GameState, 'public' | 'derived' | 'p
   robber: 'public',
   buildings: 'public',
   roads: 'public',
+  ships: 'public',
+  pirate: 'public',
+  islandBonus: 'public',
   players: 'derived',
   bank: 'public',
   devDeck: 'derived',
@@ -60,6 +63,8 @@ export const PLAYER_VISIBILITY: Record<keyof PlayerState, 'public' | 'owner'> = 
   settlementsLeft: 'public',
   citiesLeft: 'public',
   longestRoadLength: 'public',
+  shipsLeft: 'public',
+  bonusVP: 'public',
 };
 
 /**
@@ -88,6 +93,10 @@ export const EVENT_VISIBILITY: Record<GameEvent['type'], 'public' | 'redacted'> 
   awardChanged: 'public',
   turnStarted: 'public',
   specialBuildTurn: 'public',
+  shipMoved: 'public',
+  pirateMoved: 'public',
+  goldChosen: 'public',
+  islandBonus: 'public',
   gameOver: 'public',
 };
 
@@ -98,6 +107,8 @@ const copyBoard = (b: Board): Board => ({
   layoutId: b.layoutId,
   hexes: b.hexes.map((h) => ({ ...h })),
   ports: b.ports.map((p) => ({ ...p, vertices: [p.vertices[0], p.vertices[1]] })),
+  homeIslands: [...b.homeIslands],
+  islandBonusVP: b.islandBonusVP,
 });
 
 function copyBuildings(src: Record<VertexId, Building>): Record<VertexId, Building> {
@@ -119,6 +130,9 @@ function copyPhase(p: Phase): Phase {
   switch (p.kind) {
     case 'discard':
       return { kind: 'discard', pending: { ...p.pending } };
+    case 'goldChoice':
+      // `resume` is a flat phase (setup/preRoll/main): a spread copies it fully.
+      return { kind: 'goldChoice', pending: { ...p.pending }, resume: { ...p.resume } };
     case 'steal':
       return { ...p, candidates: [...p.candidates] };
     case 'specialBuild':
@@ -155,6 +169,8 @@ export function toPlayerView(state: GameState, viewer: Seat | null): PlayerView 
       settlementsLeft: p.settlementsLeft,
       citiesLeft: p.citiesLeft,
       longestRoadLength: p.longestRoadLength,
+      shipsLeft: p.shipsLeft,
+      bonusVP: p.bonusVP,
       publicVP: publicVP(state, p.seat),
     };
     if (over || p.seat === viewer) {
@@ -174,6 +190,11 @@ export function toPlayerView(state: GameState, viewer: Seat | null): PlayerView 
     robber: state.robber,
     buildings: copyBuildings(state.buildings),
     roads: { ...state.roads },
+    ships: { ...state.ships },
+    pirate: state.pirate,
+    islandBonus: Object.fromEntries(
+      Object.entries(state.islandBonus).map(([k, seats]) => [k, [...seats]]),
+    ),
     players,
     bank: { ...state.bank },
     devDeckCount: state.devDeck.length,
@@ -181,6 +202,7 @@ export function toPlayerView(state: GameState, viewer: Seat | null): PlayerView 
     turn: {
       ...state.turn,
       dice: state.turn.dice === null ? null : [state.turn.dice[0], state.turn.dice[1]],
+      newShips: [...state.turn.newShips],
     },
     phase: copyPhase(state.phase),
     // Trade offers are public: every seat sees who offers what to whom and the responses.

@@ -38,7 +38,7 @@ describe('rolling a 7 (RULES.md#turn)', () => {
   it('with no hand over the limit: no discard phase, straight to the robber', () => {
     const s = rollTo(inPhase(newGame(4), { kind: 'preRoll' }), 7);
     const { state, events } = expectOk(s, 0, { type: 'ROLL' });
-    expect(state.phase).toEqual({ kind: 'moveRobber', returnTo: 'main' });
+    expect(state.phase).toEqual({ kind: 'moveRobber', returnTo: 'main', allowPirate: false });
     expect(eventsOf(events, 'discardRequired')).toEqual([]);
     expect(getLegal(state, 1).actions).toEqual([]);
     expectRejected(state, 1, { type: 'DISCARD', resources: resourcesOf({}) }, 'WRONG_PHASE');
@@ -72,7 +72,7 @@ describe('rolling a 7 (RULES.md#turn)', () => {
       type: 'DISCARD',
       resources: resourcesOf({ lumber: 2, ore: 2 }),
     }).state;
-    expect(state.phase).toEqual({ kind: 'moveRobber', returnTo: 'main' });
+    expect(state.phase).toEqual({ kind: 'moveRobber', returnTo: 'main', allowPirate: false });
     expect(state.players.map((p) => totalResources(p.resources))).toEqual([7, 7, 4, 5]);
     expect(violations(state)).toEqual([]);
   });

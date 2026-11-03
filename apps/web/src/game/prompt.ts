@@ -45,6 +45,15 @@ export function phasePrompt(view: PlayerView, name: (s: Seat) => string): Prompt
         .map(([s]) => Number(s));
       return { text: `Waiting for ${listNames(others, name)} to discard…`, tone: 'wait' };
     }
+    case 'goldChoice': {
+      const mineLeft = me !== null ? (p.pending[String(me)] ?? 0) : 0;
+      if (mineLeft > 0)
+        return { text: `Choose ${plural(mineLeft, 'resource')} from gold`, tone: 'act' };
+      const others = Object.entries(p.pending)
+        .filter(([, n]) => n > 0)
+        .map(([s]) => Number(s));
+      return { text: `Waiting for ${listNames(others, name)} to choose gold…`, tone: 'wait' };
+    }
     case 'moveRobber':
       return mine ? { text: 'Move the robber', tone: 'act' } : wait(current, ' to move the robber');
     case 'steal':

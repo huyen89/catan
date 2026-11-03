@@ -44,10 +44,13 @@ export function createFakeEngine(opts: { turnsToWin?: number } = {}): EngineApi 
         engineVersion: 0,
         config,
         rng: [seed.length, 0, 0, 0],
-        board: { layoutId: 'fake', hexes: [], ports: [] },
+        board: { layoutId: 'fake', hexes: [], ports: [], homeIslands: [0], islandBonusVP: 0 },
         robber: '0,0',
         buildings: {},
         roads: {},
+        ships: {},
+        pirate: null,
+        islandBonus: {},
         players: Array.from({ length: config.players }, (_, seat) => ({
           seat,
           resources: empty(),
@@ -58,11 +61,20 @@ export function createFakeEngine(opts: { turnsToWin?: number } = {}): EngineApi 
           settlementsLeft: 5,
           citiesLeft: 4,
           longestRoadLength: 0,
+          shipsLeft: 0,
+          bonusVP: 0,
         })),
         bank: { brick: 19, lumber: 19, wool: 19, grain: 19, ore: 19 },
         devDeck: ['knight', 'monopoly', 'victoryPoint', 'yearOfPlenty'],
         setupOrder: [],
-        turn: { current: 0, number: 1, dice: null, devPlayed: false },
+        turn: {
+          current: 0,
+          number: 1,
+          dice: null,
+          devPlayed: false,
+          shipMoved: false,
+          newShips: [],
+        },
         phase: { kind: 'main' },
         trades: [],
         nextTradeId: 1,
@@ -186,6 +198,9 @@ export function createFakeEngine(opts: { turnsToWin?: number } = {}): EngineApi 
         robber: state.robber,
         buildings: state.buildings,
         roads: state.roads,
+        ships: state.ships,
+        pirate: state.pirate,
+        islandBonus: state.islandBonus,
         players: state.players.map((p) => ({
           seat: p.seat,
           resourceCount: Object.values(p.resources).reduce((a, b) => a + b, 0),
@@ -195,6 +210,8 @@ export function createFakeEngine(opts: { turnsToWin?: number } = {}): EngineApi 
           settlementsLeft: p.settlementsLeft,
           citiesLeft: p.citiesLeft,
           longestRoadLength: 0,
+          shipsLeft: p.shipsLeft,
+          bonusVP: p.bonusVP,
           publicVP: 0,
           ...(over || p.seat === viewer
             ? { resources: { ...p.resources }, devCards: [...p.devCards], newDevCards: [] }
@@ -215,6 +232,8 @@ export function createFakeEngine(opts: { turnsToWin?: number } = {}): EngineApi 
     },
 
     redactEvent,
+
+    upgradeState: (state) => state,
 
     getPendingActors: (state) => (state.phase.kind === 'gameOver' ? [] : pendingOf(state)),
   };

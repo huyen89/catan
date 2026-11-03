@@ -54,14 +54,14 @@ describe('discard (RULES.md#turn)', () => {
     expect(totalResources(s.players[2]!.resources)).toBe(5);
     expectRejected(s, 2, { type: 'DISCARD', resources: resourcesOf({ ore: 1 }) }, 'NOT_YOUR_TURN');
     s = expectOk(s, 1, { type: 'DISCARD', resources: resourcesOf({ brick: 4 }) }).state;
-    expect(s.phase).toEqual({ kind: 'moveRobber', returnTo: 'main' });
+    expect(s.phase).toEqual({ kind: 'moveRobber', returnTo: 'main', allowPirate: false });
     expect(s.bank.brick).toBe(19 - 4);
   });
 });
 
 describe('robber and steal (RULES.md#turn)', () => {
   const robberState = (returnTo: 'main' | 'preRoll' = 'main') =>
-    inPhase(newGame(4), { kind: 'moveRobber', returnTo });
+    inPhase(newGame(4), { kind: 'moveRobber', returnTo, allowPirate: false });
 
   it('must move to a different land hex, by the current player', () => {
     const s = robberState();
@@ -110,7 +110,12 @@ describe('robber and steal (RULES.md#turn)', () => {
     give(s, 1, { ore: 2 });
     give(s, 2, { grain: 1, lumber: 1 });
     s = expectOk(s, 0, { type: 'MOVE_ROBBER', hex: '0,0' }).state;
-    expect(s.phase).toEqual({ kind: 'steal', candidates: [1, 2], returnTo: 'main' });
+    expect(s.phase).toEqual({
+      kind: 'steal',
+      candidates: [1, 2],
+      returnTo: 'main',
+      via: 'robber',
+    });
     expect(getLegal(s, 0).stealVictims).toEqual([1, 2]);
     expectRejected(s, 0, { type: 'STEAL', victim: 3 }, 'INVALID_ACTION');
     expectRejected(s, 0, { type: 'STEAL', victim: 0 }, 'INVALID_ACTION');

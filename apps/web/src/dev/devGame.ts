@@ -97,7 +97,14 @@ export function populateDemo(state: GameState): GameState {
   state.robber = robberHex.id;
 
   state.phase = { kind: 'main' };
-  state.turn = { current: 0, number: 7, dice: [3, 5], devPlayed: false };
+  state.turn = {
+    current: 0,
+    number: 7,
+    dice: [3, 5],
+    devPlayed: false,
+    shipMoved: false,
+    newShips: [],
+  };
   const responses: Record<string, 'pending' | 'accept' | 'reject'> = {};
   for (let s = 1; s < n; s++)
     responses[String(s)] = s === 1 ? 'accept' : s === 2 ? 'reject' : 'pending';
@@ -184,6 +191,7 @@ export function approximateLegal(state: GameState, seat: Seat): LegalSummary {
       settlement: hasResources(p.resources, COSTS.settlement),
       city: hasResources(p.resources, COSTS.city),
       devCard: hasResources(p.resources, COSTS.devCard),
+      ship: false,
     },
   };
 }
