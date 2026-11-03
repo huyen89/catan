@@ -56,6 +56,7 @@ class FakePC {
   oniceconnectionstatechange: Fn | null = null;
   ontrack: Fn | null = null;
   stats: Array<Record<string, unknown>> = [];
+  receivers: unknown[] = [];
   readonly restartIce = vi.fn();
   readonly close = vi.fn();
 
@@ -64,6 +65,12 @@ class FakePC {
   }
   addTransceiver() {}
   getTransceivers() {
+    return [];
+  }
+  getReceivers() {
+    return this.receivers;
+  }
+  getSenders() {
     return [];
   }
   getConfiguration() {
@@ -97,8 +104,38 @@ function fakeElement() {
 }
 
 const flush = async () => {
-  for (let i = 0; i < 5; i++) await Promise.resolve();
+  for (let i = 0; i < 20; i++) await Promise.resolve();
 };
+
+const ICE_JSON = { iceServers: [{ urls: 'stun:stun.example.com' }], ttl: 3600 };
+
+/** fetch stub whose responses are released by hand. */
+function deferredFetch() {
+  const pending: Array<() => void> = [];
+  const fn = vi.fn(
+    () =>
+      new Promise((resolve) => {
+        pending.push(() =>
+          resolve({ ok: true, json: () => Promise.resolve({ ...ICE_JSON, ttl: 7200 }) }),
+        );
+      }),
+  );
+  vi.stubGlobal('fetch', fn);
+  return { fn, releaseAll: () => pending.splice(0).forEach((r) => r()) };
+}
+
+const RELAY_STATS = [
+  { id: 'L', type: 'local-candidate', candidateType: 'relay', relayProtocol: 'udp' },
+  { id: 'R', type: 'remote-candidate', candidateType: 'srflx' },
+  { id: 'P', type: 'candidate-pair', localCandidateId: 'L', remoteCandidateId: 'R' },
+  { id: 'T', type: 'transport', selectedCandidatePairId: 'P' },
+];
+const HOST_STATS = [
+  { id: 'L', type: 'local-candidate', candidateType: 'host' },
+  { id: 'R', type: 'remote-candidate', candidateType: 'host' },
+  { id: 'P', type: 'candidate-pair', localCandidateId: 'L', remoteCandidateId: 'R' },
+  { id: 'T', type: 'transport', selectedCandidatePairId: 'P' },
+];
 
 let socket: FakeSocket;
 let state: Partial<VoiceState>;
@@ -217,17 +254,79 @@ describe('VoiceManager ICE restart', () => {
     expect(pc.restartIce).toHaveBeenCalledTimes(2);
   });
 
+  it('refreshes stale ICE credentials before restarting', async () => {
+    vi.useFakeTimers();
+    const pc = await joinWithBob();
+    vi.setSystemTime(Date.now() + 3600_000); // past half the 1h TTL
+    const f = deferredFetch();
+    pc.setIce('failed');
+    await flush();
+    expect(f.fn).toHaveBeenCalledTimes(1);
+    expect(pc.restartIce).not.toHaveBeenCalled();
+    f.releaseAll();
+    await flush();
+    expect(pc.restartIce).toHaveBeenCalledTimes(1);
+    expect(pc.config.iceServers).toEqual(ICE_JSON.iceServers);
+  });
+
+  it('does not restart if ICE recovered while credentials were being fetched', async () => {
+    vi.useFakeTimers();
+    const pc = await joinWithBob();
+    vi.setSystemTime(Date.now() + 3600_000);
+    const f = deferredFetch();
+    pc.setIce('failed');
+    await flush();
+    pc.setIce('connected');
+    f.releaseAll();
+    await flush();
+    expect(pc.restartIce).not.toHaveBeenCalled();
+    // A later failure can restart again (the stale attempt left no guard behind).
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve(ICE_JSON) })),
+    );
+    pc.setIce('failed');
+    await flush();
+    expect(pc.restartIce).toHaveBeenCalledTimes(1);
+  });
+
   it('records the selected route once connected', async () => {
     const pc = await joinWithBob();
-    pc.stats = [
-      { id: 'L', type: 'local-candidate', candidateType: 'relay', relayProtocol: 'udp' },
-      { id: 'R', type: 'remote-candidate', candidateType: 'srflx' },
-      { id: 'P', type: 'candidate-pair', localCandidateId: 'L', remoteCandidateId: 'R' },
-      { id: 'T', type: 'transport', selectedCandidatePairId: 'P' },
-    ];
+    pc.stats = RELAY_STATS;
     pc.setIce('connected');
     await flush();
     expect(peersOf().bob?.route).toEqual({ local: 'relay', remote: 'srflx', relayProtocol: 'udp' });
+  });
+
+  it('re-reads the route shortly after connecting', async () => {
+    vi.useFakeTimers();
+    const pc = await joinWithBob();
+    pc.stats = HOST_STATS;
+    pc.setIce('connected');
+    await flush();
+    expect(peersOf().bob?.route?.local).toBe('host');
+    pc.stats = RELAY_STATS;
+    vi.advanceTimersByTime(3000);
+    await flush();
+    expect(peersOf().bob?.route?.local).toBe('relay');
+  });
+
+  it('follows selected-pair changes where the ICE transport exposes them', async () => {
+    const pc = await joinWithBob();
+    const transport: { onselectedcandidatepairchange: (() => void) | null } = {
+      onselectedcandidatepairchange: null,
+    };
+    pc.receivers = [{ transport: { iceTransport: transport } }];
+    pc.stats = HOST_STATS;
+    pc.setIce('connected');
+    await flush();
+    expect(transport.onselectedcandidatepairchange).toBeTypeOf('function');
+    pc.stats = RELAY_STATS;
+    transport.onselectedcandidatepairchange!();
+    await flush();
+    expect(peersOf().bob?.route?.local).toBe('relay');
+    manager.leave();
+    expect(transport.onselectedcandidatepairchange).toBeNull();
   });
 });
 

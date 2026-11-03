@@ -338,7 +338,10 @@ describe('selectedRoute', () => {
     ]);
     expect(route).toEqual({ local: 'host', remote: 'host', relayProtocol: null });
     expect(routeKind(route!)).toBe('host');
-    expect(routeKind({ local: 'prflx', remote: 'host', relayProtocol: null })).toBe('srflx');
+    const prflx = { local: 'prflx', remote: 'host', relayProtocol: null } as const;
+    expect(routeKind(prflx)).toBe('direct');
+    expect(routeDescription(prflx)).toBe('Direct connection (prflx → host)');
+    expect(routeKind({ local: 'prflx', remote: 'srflx', relayProtocol: null })).toBe('srflx');
   });
 
   it('returns null without a usable pair', () => {

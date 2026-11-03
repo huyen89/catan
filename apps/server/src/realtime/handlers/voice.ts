@@ -1,15 +1,18 @@
 import { C2S, type Ack, type AckError, type VoicePeer } from '@hexhaven/shared';
 import { ioRooms, type HexServer, type HexSocket } from '../types';
 import { TokenBucket } from '../../voice/rateLimit';
-import { voiceMaxPeersFromEnv } from '../../voice/limits';
+import { VOICE_MAX_PEERS, signalBurstFor } from '../../voice/limits';
 
 /** Callbacks into the room manager so seat badges (inVoice/muted) stay in sync. */
 export interface VoiceHooks {
   onVoiceState(roomId: string, userId: string, state: { inVoice: boolean; muted: boolean }): void;
 }
 
-/** Signaling burst/sustained limits per socket. A 6-peer mesh join with trickle ICE needs ~60. */
-export const SIGNAL_BURST = 100;
+/**
+ * Signaling burst/sustained limits per socket. A mesh join with trickle ICE needs ~10–12
+ * signals per peer, so the burst scales with the voice cap (see signalBurstFor).
+ */
+export const SIGNAL_BURST = signalBurstFor(VOICE_MAX_PEERS);
 export const SIGNAL_PER_SEC = 50;
 /** join/state limits per socket. */
 export const CONTROL_BURST = 20;
@@ -108,10 +111,16 @@ function removeFromVoice(
  * Signals are relayed ONLY between users in the same room's voice channel.
  * Owned by workstream V. Called by realtime/socket.ts (workstream S) for every connection.
  */
-export function registerVoiceHandlers(io: HexServer, socket: HexSocket, hooks: VoiceHooks): void {
-  const signalBucket = new TokenBucket(SIGNAL_BURST, SIGNAL_PER_SEC);
+export function registerVoiceHandlers(
+  io: HexServer,
+  socket: HexSocket,
+  hooks: VoiceHooks,
+  /** Overrides for tests; production uses VOICE_MAX_PEERS read once at startup. */
+  opts: { maxPeers?: number } = {},
+): void {
+  const maxPeers = opts.maxPeers ?? VOICE_MAX_PEERS;
+  const signalBucket = new TokenBucket(signalBurstFor(maxPeers), SIGNAL_PER_SEC);
   const controlBucket = new TokenBucket(CONTROL_BURST, CONTROL_PER_SEC);
-  const maxPeers = voiceMaxPeersFromEnv();
 
   socket.on('voice:join', (rawPayload, rawAck) => {
     const { payload, reply } = normalizeArgs<{ peers: VoicePeer[] }>(rawPayload, rawAck);

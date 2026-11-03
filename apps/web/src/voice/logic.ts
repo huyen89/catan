@@ -318,18 +318,24 @@ export function selectedRoute(entries: Iterable<StatsEntry>): PeerRoute | null {
   return { local: l.type, remote: r.type, relayProtocol: l.relayProtocol };
 }
 
-export type RouteKind = 'host' | 'srflx' | 'relay';
+export type RouteKind = 'host' | 'direct' | 'srflx' | 'relay';
 
-/** Coarse route for a badge: relayed if either side relays, direct via NAT, or local. */
+/**
+ * Coarse route for a badge. Relayed if either side relays; over the internet if either side
+ * is server-reflexive; host↔host is the same network. A peer-reflexive candidate (learned
+ * during connectivity checks) may or may not cross the internet, so it is only "direct".
+ */
 export function routeKind(route: PeerRoute): RouteKind {
   const types = [route.local, route.remote];
   if (types.includes('relay')) return 'relay';
-  if (types.includes('srflx') || types.includes('prflx')) return 'srflx';
+  if (types.includes('srflx')) return 'srflx';
+  if (types.includes('prflx')) return 'direct';
   return 'host';
 }
 
 export const ROUTE_LABEL: Record<RouteKind, { short: string; long: string }> = {
   host: { short: 'LAN', long: 'Direct (same network)' },
+  direct: { short: 'P2P', long: 'Direct connection' },
   srflx: { short: 'P2P', long: 'Direct over the internet' },
   relay: { short: 'TURN', long: 'Relayed through the TURN server' },
 };

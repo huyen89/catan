@@ -1,24 +1,8 @@
-import {
-  FALLBACK_ICE_SERVERS,
-  parseIceResponse,
-  summarizeIceTest,
-  type CandidateLike,
-  type IceTestResult,
-} from './logic';
+import { fetchIceServers } from './iceServers';
+import { summarizeIceTest, type CandidateLike, type IceTestResult } from './logic';
 
 /** Gathering normally finishes in 1–3 s; a TURN server that never answers is cut off here. */
 const GATHER_TIMEOUT_MS = 8000;
-
-async function fetchIceServers(): Promise<{ iceServers: RTCIceServer[]; fetched: boolean }> {
-  try {
-    const res = await fetch('/api/voice/ice', { credentials: 'include' });
-    if (!res.ok) return { iceServers: FALLBACK_ICE_SERVERS, fetched: false };
-    const { iceServers } = parseIceResponse(await res.json());
-    return { iceServers, fetched: iceServers !== FALLBACK_ICE_SERVERS };
-  } catch {
-    return { iceServers: FALLBACK_ICE_SERVERS, fetched: false };
-  }
-}
 
 /** Gathers candidates on a throwaway connection (no media, no remote peer). */
 async function gather(

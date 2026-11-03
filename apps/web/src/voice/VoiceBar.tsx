@@ -126,7 +126,7 @@ function ConnectionTest() {
   const relays = result
     ? (['udp', 'tcp', 'tls'] as const).filter((p) => result.relay[p]).map((p) => p.toUpperCase())
     : [];
-  if (result?.relay.unknown) relays.push('yes');
+  if (result?.relay.unknown) relays.push('relay (transport unknown)');
 
   return (
     <details className="vb-diag">

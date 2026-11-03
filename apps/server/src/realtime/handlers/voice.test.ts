@@ -5,7 +5,13 @@ import { io as connect, type Socket as ClientSocket } from 'socket.io-client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Ack, ClientToServerEvents, ServerToClientEvents } from '@hexhaven/shared';
 import { ioRooms, type HexServer, type HexSocket } from '../types';
-import { isInVoice, leaveVoice, registerVoiceHandlers, type VoiceHooks } from './voice';
+import {
+  SIGNAL_BURST,
+  isInVoice,
+  leaveVoice,
+  registerVoiceHandlers,
+  type VoiceHooks,
+} from './voice';
 
 type Client = ClientSocket<ServerToClientEvents, ClientToServerEvents>;
 /** Untyped view of a client for sending malformed payloads. */
@@ -18,10 +24,12 @@ let io: HexServer;
 let url: string;
 let hookCalls: Array<{ roomId: string; userId: string; inVoice: boolean; muted: boolean }>;
 let hooks: VoiceHooks;
+let maxPeers: number | undefined;
 const serverSockets = new Map<string, HexSocket>();
 const clients: Client[] = [];
 
 beforeEach(async () => {
+  maxPeers = undefined;
   hookCalls = [];
   hooks = { onVoiceState: (roomId, userId, s) => hookCalls.push({ roomId, userId, ...s }) };
   http = createServer();
@@ -36,7 +44,7 @@ beforeEach(async () => {
     serverSockets.set((socket.handshake.auth as { tag: string }).tag, socket);
     void socket.join(ioRooms.user(socket.data.userId));
     if (socket.data.roomId) void socket.join(ioRooms.room(socket.data.roomId));
-    registerVoiceHandlers(io, socket, hooks);
+    registerVoiceHandlers(io, socket, hooks, { maxPeers });
   });
   await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve));
   url = `http://127.0.0.1:${(http.address() as AddressInfo).port}`;
@@ -158,12 +166,6 @@ describe('voice:join', () => {
 });
 
 describe('voice:join mute state and cap', () => {
-  const prevMax = process.env.VOICE_MAX_PEERS;
-  afterEach(() => {
-    if (prevMax === undefined) delete process.env.VOICE_MAX_PEERS;
-    else process.env.VOICE_MAX_PEERS = prevMax;
-  });
-
   it("reports each peer's current mic state in the ack", async () => {
     const a = await client('alice', 'r1');
     const b = await client('bob', 'r1');
@@ -179,7 +181,7 @@ describe('voice:join mute state and cap', () => {
   });
 
   it('refuses joins beyond VOICE_MAX_PEERS without disturbing the channel', async () => {
-    process.env.VOICE_MAX_PEERS = '2';
+    maxPeers = 2;
     const a = await client('alice', 'r1');
     const b1 = await client('bob', 'r1', 'bob-1');
     const c = await client('carol', 'r1');
@@ -322,10 +324,12 @@ describe('voice:signal', () => {
     const b = await client('bob', 'r1');
     await join(a);
     await join(b);
-    const acks = await Promise.all(Array.from({ length: 160 }, () => signal(a, 'bob')));
+    const acks = await Promise.all(
+      Array.from({ length: SIGNAL_BURST + 60 }, () => signal(a, 'bob')),
+    );
     const limited = acks.filter((x) => errCode(x) === 'rate_limited').length;
     expect(limited).toBeGreaterThan(0);
-    expect(acks.length - limited).toBeGreaterThanOrEqual(100);
+    expect(acks.length - limited).toBeGreaterThanOrEqual(SIGNAL_BURST);
   });
 });
 

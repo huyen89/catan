@@ -91,7 +91,7 @@ for the extra protection.
 
 Cloudflare charges for TURN by relayed traffic and includes a free allowance. Voice-only use by a group
 of friends is tiny, but check the current pricing on their site. The game server hands each signed-in
-player short-lived credentials (`TURN_TTL_SEC`, 6 hours by default). The API token itself never leaves
+player short-lived credentials (`TURN_TTL_SEC`: 60..172800 seconds, default 3600 (1h)). The API token itself never leaves
 your server.
 
 **Alternative: your own coturn server.** Use this only if you can forward ports on your router.
@@ -163,7 +163,7 @@ settings:
      mobile networks.
 3. For an end-to-end check, join voice on the phone and on a computer at home, in the same room. Each
    person in the voice list gets a small badge once connected (hover or long-press it for details):
-   **LAN** = same network, **P2P** = direct over the internet, **TURN** = relayed. On mobile data
+   **LAN** = same network, **P2P** = direct (usually over the internet), **TURN** = relayed. On mobile data
    you will usually see **TURN** or **P2P**; both are fine if you can hear each other.
 4. To force the relay and prove it carries audio, open the game on the computer with
    `?voiceRelay=1` added to the address (for example `https://hexhaven.yourdomain.com/?voiceRelay=1`)
@@ -268,8 +268,9 @@ everyone, which phones notice.
   down for 5 seconds, and re-joins voice when the game's connection comes back). If a peer stays red,
   leave and re-join voice.
 
-**Voice stops after a few hours.** TURN credentials expire after `TURN_TTL_SEC`. The game fetches new
-ones when a connection fails, but leaving and re-joining voice also refreshes them.
+**Voice stops after a while (about an hour by default).** TURN credentials expire after `TURN_TTL_SEC`
+(default 3600 seconds). The game fetches new ones when a connection fails, and leaving and re-joining
+voice also refreshes them.
 
 ## Running without Docker (development or a quick test)
 
