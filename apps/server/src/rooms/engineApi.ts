@@ -8,7 +8,7 @@ import type {
   PlayerView,
   Seat,
 } from '@hexhaven/engine';
-import { decide as botDecide, type BotOptions } from '@hexhaven/bot';
+import { BotPlayer, type BotOptions } from '@hexhaven/bot';
 
 /** The subset of @hexhaven/engine the server depends on. Injected so tests can use a fake. */
 export interface EngineApi {
@@ -22,8 +22,14 @@ export interface EngineApi {
   getPendingActors(state: GameState): Seat[];
 }
 
-/** Bot policy: next action for `view.viewer`, from the redacted view only. */
-export type BotDecide = (view: PlayerView, opts: BotOptions) => Action;
+/** One bot driving one seat; may keep memory between calls (e.g. offers made this turn). */
+export interface SeatBot {
+  /** Next action for `view.viewer`, from the redacted view only. */
+  decide(view: PlayerView): Action;
+}
+
+/** Creates a fresh bot for a seat (a new one whenever control of the seat changes hands). */
+export type BotFactory = (opts: BotOptions) => SeatBot;
 
 export const realEngine: EngineApi = {
   normalizeConfig: engine.normalizeConfig,
@@ -35,4 +41,4 @@ export const realEngine: EngineApi = {
   getPendingActors: engine.getPendingActors,
 };
 
-export const realDecide: BotDecide = botDecide;
+export const realBots: BotFactory = (opts) => new BotPlayer(opts);

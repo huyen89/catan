@@ -4,7 +4,8 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { Repos } from '../db';
 import type { Actor } from '../db/games';
 import { AppError } from '../errors';
-import type { BotDecide, EngineApi } from './engineApi';
+import { awaitingResponses } from '@hexhaven/bot';
+import type { BotFactory, EngineApi, SeatBot } from './engineApi';
 import { fallbackActions } from './fallback';
 
 /** What the runner needs to know about a seat. Owned and mutated by the room. */
@@ -33,11 +34,16 @@ export interface RunnerOptions {
   gameId: string;
   state: GameState;
   engine: EngineApi;
-  decide: BotDecide;
+  bots: BotFactory;
   repos: Repos;
   host: RunnerHost;
   log: FastifyBaseLogger;
   botDelayMs: number;
+  /**
+   * How long an active bot waits for answers to its own open offer before it moves on (capped
+   * by the turn deadline); 0 = it never waits.
+   */
+  tradeResponseMs?: number;
   random?: () => number;
   now?: () => number;
   discardMs?: number;
@@ -85,6 +91,19 @@ export class GameRunner {
   private pausedFlag = false;
   private closed = false;
   /**
+   * One long-lived bot per bot-driven seat; replaced whenever the seat changes hands. `reclaimedTurn`
+   * marks a bot whose seat its human took back: covering the seat again in that same turn reuses
+   * it (keeping its per-turn trade memory), a later turn gets a fresh one.
+   */
+  private readonly bots = new Map<Seat, { key: string; bot: SeatBot; reclaimedTurn?: number }>();
+  /**
+   * Response windows of the active bot's offers this turn: offer id → wait deadline. Kept for the
+   * whole turn (dev-card detours, other offers closing) so an offer is only ever waited on once.
+   */
+  private waits: { turn: number; seat: Seat; until: Map<number, number> } | null = null;
+  /** Wakes the scheduler when the current hold ends. */
+  private holdTimer: { handle: NodeJS.Timeout; at: number } | null = null;
+  /**
    * Redacted views of the current version, one per viewer seat (null = spectator). A broadcast,
    * catch-up syncs and bot turns at the same version all share these instead of re-redacting.
    */
@@ -131,6 +150,7 @@ export class GameRunner {
   close(): void {
     this.closed = true;
     this.clearBotTimers();
+    this.clearHold();
     this.clearTurnTimer();
   }
 
@@ -322,6 +342,8 @@ export class GameRunner {
   }
 
   private onReclaimed(seat: Seat): void {
+    const bot = this.bots.get(seat);
+    if (bot) bot.reclaimedTurn = this.current.turn.number;
     this.timeouts.delete(seat);
     this.botAttempts.delete(seat);
     const t = this.botTimers.get(seat);
@@ -342,9 +364,11 @@ export class GameRunner {
   private scheduleBots(): void {
     if (this.closed || this.pausedFlag || this.isOver) {
       this.clearBotTimers();
+      this.clearHold();
       return;
     }
     const pending = new Set(this.engine.getPendingActors(this.current));
+    if (this.holding()) pending.delete(this.current.turn.current);
     for (const [seat, t] of this.botTimers) {
       if (!pending.has(seat) || !this.isBotControlled(seat)) {
         clearTimeout(t);
@@ -364,6 +388,96 @@ export class GameRunner {
     }
   }
 
+  /** Long-lived bot for a seat, created on first use and whenever its controller changes. */
+  private botFor(seat: Seat): SeatBot {
+    const s = this.host.seats()[seat]!;
+    const key = `${s.kind}:${s.userId ?? ''}:${s.botDifficulty}`;
+    let e = this.bots.get(seat);
+    const stale =
+      !e ||
+      e.key !== key ||
+      (e.reclaimedTurn !== undefined && e.reclaimedTurn !== this.current.turn.number);
+    if (stale) {
+      e = { key, bot: this.opts.bots({ difficulty: s.botDifficulty, random: this.random }) };
+      this.bots.set(seat, e);
+    }
+    e!.reclaimedTurn = undefined;
+    return e!.bot;
+  }
+
+  /**
+   * True while the active, bot-driven seat should wait for answers to its own open offers: it is
+   * not scheduled then, so responders (bots at their usual pace, humans) get a say. A responder
+   * who countered has answered. Each offer gets one window of `tradeResponseMs` (capped by the
+   * turn deadline) per turn; the wait ends early once every answer is in, and never applies while
+   * the bot itself has a counter-offer to answer.
+   */
+  private holding(): boolean {
+    const ms = this.opts.tradeResponseMs ?? 0;
+    const s = this.current;
+    const seat = s.turn.current;
+    if (
+      ms <= 0 ||
+      s.phase.kind !== 'main' ||
+      !this.isBotControlled(seat) ||
+      !awaitingResponses(s, seat)
+    ) {
+      this.clearHold();
+      return false;
+    }
+    if (this.waits?.turn !== s.turn.number || this.waits.seat !== seat) {
+      this.waits = { turn: s.turn.number, seat, until: new Map() };
+    }
+    const me = String(seat);
+    const askedToAnswer = s.trades.some(
+      (t) => t.counterTo !== null && t.responses[me] === 'pending',
+    );
+    const unanswered = askedToAnswer
+      ? []
+      : s.trades.filter(
+          (t) =>
+            t.from === seat &&
+            t.counterTo === null &&
+            Object.entries(t.responses).some(
+              ([r, v]) =>
+                v === 'pending' &&
+                !s.trades.some((c) => c.counterTo === t.id && String(c.from) === r),
+            ),
+        );
+    const now = this.now();
+    const t = this.timer;
+    const left = !t ? Infinity : t.expired ? 0 : (t.remaining ?? t.deadline - now);
+    let until = -Infinity;
+    for (const o of unanswered) {
+      let d = this.waits.until.get(o.id);
+      if (d === undefined) this.waits.until.set(o.id, (d = now + Math.max(0, Math.min(ms, left))));
+      until = Math.max(until, d);
+    }
+    if (until <= now) {
+      this.clearHold();
+      return false;
+    }
+    if (this.holdTimer?.at !== until) {
+      this.clearHold();
+      const handle = setTimeout(() => {
+        this.enqueue(() => {
+          if (this.holdTimer?.handle !== handle) return;
+          this.holdTimer = null;
+          this.scheduleBots();
+        }).catch((e: unknown) =>
+          this.opts.log.error({ err: e, gameId: this.gameId }, 'trade hold crashed'),
+        );
+      }, until - now);
+      this.holdTimer = { handle, at: until };
+    }
+    return true;
+  }
+
+  private clearHold(): void {
+    if (this.holdTimer) clearTimeout(this.holdTimer.handle);
+    this.holdTimer = null;
+  }
+
   private botDelay(): number {
     const base = this.opts.botDelayMs;
     return base <= 0 ? 0 : Math.round(base * (0.7 + 0.6 * this.random()));
@@ -377,10 +491,9 @@ export class GameRunner {
 
     const version = this.current.version;
     const view = this.viewFor(seat);
-    const difficulty = this.host.seats()[seat]!.botDifficulty;
     let ok = false;
     try {
-      const action = this.opts.decide(view, { difficulty, random: this.random });
+      const action = this.botFor(seat).decide(view);
       const res = this.apply(seat, action, 'bot');
       ok = res.ok;
       if (!res.ok)
@@ -537,7 +650,8 @@ export class GameRunner {
     else {
       try {
         const view = this.viewFor(seat);
-        action = this.opts.decide(view, { difficulty: 'normal', random: this.random });
+        // A one-off stand-in: the seat's owner is still in charge of the rest of the turn.
+        action = this.opts.bots({ difficulty: 'normal', random: this.random }).decide(view);
       } catch (e) {
         this.opts.log.warn({ err: e, gameId: this.gameId, seat }, 'timeout bot decide failed');
       }

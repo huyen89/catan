@@ -13,7 +13,7 @@ import { helmetOptions } from './http/security';
 import { registerStatic } from './http/static';
 import { createSocketServer } from './realtime/socket';
 import type { HexServer } from './realtime/types';
-import { realDecide, realEngine, type BotDecide, type EngineApi } from './rooms/engineApi';
+import { realBots, realEngine, type BotFactory, type EngineApi } from './rooms/engineApi';
 import { RoomManager } from './rooms/RoomManager';
 import { registerTestRoutes } from './testing/testRoutes';
 import { getIceServers } from './voice/ice';
@@ -21,7 +21,7 @@ import { getIceServers } from './voice/ice';
 /** Injectable collaborators (tests swap in fakes). */
 export interface ServerDeps {
   engine?: EngineApi;
-  decide?: BotDecide;
+  bots?: BotFactory;
   /** Overrides the google-auth-library verifier. */
   verifyGoogleToken?: GoogleVerifier;
   logger?: FastifyServerOptions['logger'];
@@ -80,7 +80,7 @@ export async function buildServer(config: Config, deps: ServerDeps = {}): Promis
     io: sockets.io,
     repos,
     engine: deps.engine ?? realEngine,
-    decide: deps.decide ?? realDecide,
+    bots: deps.bots ?? realBots,
     config,
     log: app.log,
     lobbyIdleMs: deps.lobbyIdleMs,

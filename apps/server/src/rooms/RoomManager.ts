@@ -16,7 +16,7 @@ import { AppError } from '../errors';
 import { leaveVoice, type VoiceHooks } from '../realtime/handlers/voice';
 import { ioRooms, type HexServer, type HexSocket } from '../realtime/types';
 import { uniqueRoomCode } from './codes';
-import type { BotDecide, EngineApi } from './engineApi';
+import type { BotFactory, EngineApi } from './engineApi';
 import { GameRunner, recoverGameState, type RunnerHost } from './GameRunner';
 import { Room, type Identity } from './Room';
 
@@ -29,7 +29,7 @@ export interface RoomManagerDeps {
   io: HexServer;
   repos: Repos;
   engine: EngineApi;
-  decide: BotDecide;
+  bots: BotFactory;
   config: Config;
   log: FastifyBaseLogger;
   lobbyIdleMs?: number;
@@ -426,7 +426,8 @@ export class RoomManager {
       state,
       host,
       engine: this.deps.engine,
-      decide: this.deps.decide,
+      bots: this.deps.bots,
+      tradeResponseMs: this.deps.config.tradeResponseMs,
       repos: this.deps.repos,
       log: this.deps.log,
       botDelayMs: this.deps.config.botDelayMs,

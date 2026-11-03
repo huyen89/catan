@@ -37,12 +37,9 @@ Critical path: M0 → ENG → BOT → INT → M3.
 - [x] M0 bootstrap (#1)
 - [x] M1 GEN (#2) · WEB (#3) · ENG (#4) · SRV (#5) · VOX (#6)
 - [x] M2 BOT (#7) · INT (lobby → full game, trade, reconnect, voice e2e)
-- [ ] M3 hardening. Known follow-ups:
-  - require `PUBLIC_ORIGIN` in production
-  - persist the room kick list
-  - cap voice mesh size, include peer mute state in the `voice:join` ack
-  - trim the web bundle (`@hexhaven/shared` pulls in zod)
-  - cache views and graphs on the broadcast path
-  - bots that open their own trade offers
-  - verify Cloudflare TURN relay on a real network
-- [ ] M4–M6 as above
+- [x] M3 hardening (#9 contract, #10 SRV, #11 VOX, #12 ENG, #13 WEB polish, #14 BOT trading). Remaining owner-only check:
+      verify Cloudflare TURN relay from a phone on cellular data (`docs/DEPLOY.md` step 6).
+- [ ] INT: server uses per-seat `BotPlayer`, waits for trade answers; e2e for rematch/replay/phone layout
+- [x] M4 quality of life: rematch, history, replay viewer, stats, sound effects, phone landscape layout (#10, #13)
+- [ ] M5 Open Seas variant — design in `docs/SEAFARERS.md`
+- [ ] M6 Cities & Knights (not started)

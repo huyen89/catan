@@ -14,3 +14,5 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @hexhaven/bot run sim -- --games 5000
+      - run: pnpm vitest run --project engine src/engine.fuzz.test.ts
+        env: { FUZZ_RUNS: '1000', FUZZ_STEPS: '1500' }
