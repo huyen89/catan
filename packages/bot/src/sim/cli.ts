@@ -32,7 +32,8 @@ const scenarioArg = has('scenario') ? arg('scenario', '') : null;
 if (scenarioArg !== null) {
   if (!Object.hasOwn(SCENARIOS, scenarioArg))
     fail(`--scenario must be one of ${Object.keys(SCENARIOS).join('|')}, got ${scenarioArg}`);
-  if (variantArg !== null && variantArg !== 'seafarers') fail('--scenario needs --variant seafarers');
+  if (variantArg !== null && variantArg !== 'seafarers')
+    fail('--scenario needs --variant seafarers');
 }
 const variant = (variantArg ?? (scenarioArg ? 'seafarers' : null)) as VariantId | null;
 const scenarioDef = scenarioArg ? SCENARIOS[scenarioArg as ScenarioId] : null;
