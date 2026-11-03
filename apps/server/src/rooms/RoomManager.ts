@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import type { Action, GameState, ResourceCounts } from '@hexhaven/engine';
 import {
   DEFAULT_ROOM_SETTINGS,
+  mergeRoomSettings,
   type BotDifficulty,
   type ChatMessage,
   type GameStatePayload,
@@ -111,7 +112,7 @@ export class RoomManager {
       randomUUID(),
       code,
       who.userId,
-      { ...DEFAULT_ROOM_SETTINGS, ...settings },
+      mergeRoomSettings(DEFAULT_ROOM_SETTINGS, settings ?? {}),
       Date.now(),
     );
     room.sit(who, 0);

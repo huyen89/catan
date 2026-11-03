@@ -43,6 +43,10 @@ In-product name: **Open Seas**. Variant id: `seafarers`. Original scenario names
   `normalizeConfig` fills it with `defaultScenarioFor(variant, players)` and, unless the caller set
   `vpToWin`, uses the scenario's `defaultVpToWin`. For variants without scenarios it drops the field.
 - `Port` stays the same. Ports sit on land|sea edges.
+- `Board` gains (filled by generation, public in views):
+  - `homeIslands: number[]`: home island indices (`graphFor(board).islandOf`). When the layout
+    names no home hexes, every island is home, so this is `[0]` on base and ext56 boards.
+  - `islandBonusVP: number`: the scenario's island bonus, 0 without one.
 - New `GameState` fields, all initialised for every variant:
   - `ships: Record<EdgeId, Seat>`
   - `pirate: HexId | null`
@@ -57,7 +61,7 @@ In-product name: **Open Seas**. Variant id: `seafarers`. Original scenario names
 - `Phase`:
   - `moveRobber` gains `allowPirate: boolean`.
   - `steal` gains `via: 'robber' | 'pirate'`.
-  - new `{ kind: 'goldChoice'; pending: Record<string, number>; returnTo: 'preRoll' | 'main' | 'setup' }`. Gold from a production roll is chosen right after the roll, and every owner chooses at the same time, like the discard phase.
+  - new `{ kind: 'goldChoice'; pending: Record<string, number>; resume: Extract<Phase, {kind: 'setup' | 'preRoll' | 'main'}> }`. `resume` is the exact phase to restore afterwards: `main` after a roll, or the next setup step (index, step, lastSettlement) or `preRoll` after a second setup settlement next to gold. Gold from a production roll is chosen right after the roll, and every owner chooses at the same time, like the discard phase.
 - `Action`:
   - `PLACE_SHIP {edge}` (setup)
   - `BUILD_SHIP {edge}`
@@ -72,6 +76,7 @@ In-product name: **Open Seas**. Variant id: `seafarers`. Original scenario names
   - `goldChosen {seat, resources}`
   - `islandBonus {seat, island, vp}`
   - `produced` may include `gold: Record<string, number>`: pending gold choices per seat
+  - `setupResources` may include `gold: number`: gold still to choose from the second setup settlement
 - `LegalSummary`:
   - `shipEdges: EdgeId[]`
   - `shipMoves: Record<EdgeId, EdgeId[]>`
@@ -117,9 +122,14 @@ In-product name: **Open Seas**. Variant id: `seafarers`. Original scenario names
   - Islands are numbered in order of their first hex in `landHexes` (board order).
   - Existing boards have no sea hexes, so `landHexes`, `landVertices` and `roadEdges` equal the full sets, `seaEdges` is empty, and base behaviour is unchanged.
   - `coastEdges` is the edges touching exactly one land hex. On a sea-framed board these are the land|sea edges. The walk covers each coastline as one closed cycle, and the cycles follow one another.
-- `buildGraph(hexes)` and `graphFor(board)` read each hex's optional `terrain`. Only sea vs land matters, and a hex without terrain is land. The memo key includes the sea pattern.
-- `generateBoard` supports `fixedHexes` (minimal support in the contract PR) and builds the port graph from the generated hexes. The spiral number mode is skipped for layouts with fixed hexes.
-- `ENGINE_VERSION` is now 2. `upgradeState(state)` fills the new fields with defaults on old snapshots and sets `engineVersion`; it is pure and idempotent, and the server calls it on load (`recoverGameState`).
+- `buildGraph(hexes)` and `graphFor(board)` read each hex's optional `terrain`. Only sea vs land matters, and a hex without terrain is land. The memo key includes the sea pattern. **Warning:** bare layout coordinates (no terrain) give an all-land graph; use `graphFor(board)` for real boards.
+- `generateBoard` supports `fixedHexes` (minimal support in the contract PR), builds the port graph from the generated hexes and fills `homeIslands`/`islandBonusVP`. The spiral number mode is skipped for layouts with fixed hexes. In random port mode, a coast made of several cycles uses a shuffled greedy pick of coastal edges that share no vertex (a one-cycle coast keeps the old algorithm and output); GEN may replace it with a uniform per-island scheme.
+- `ENGINE_VERSION` is now 2. `upgradeState(state)` fills the new fields with defaults on old snapshots and sets `engineVersion`. It is pure and idempotent, throws for a state from a newer engine, and the server calls it on load (`recoverGameState`).
+
+### Server and shared
+
+- `mergeRoomSettings(current, patch)` (shared) applies `room:create`/`room:settings` patches. Unless the patch sets `vpToWin`, entering Open Seas or changing the scenario it plays (the `scenario` setting, or the seat count when no scenario is set) sets `vpToWin` to that scenario's `defaultVpToWin`, and leaving Open Seas resets it to 10. `effectiveScenario(settings)` gives the scenario a room would play.
+- Starting a `seafarers` game is refused with `VARIANT_NOT_READY` while `OPEN_SEAS_PLAYABLE` (`apps/server/src/rooms/Room.ts`) is `false`. The lobby accepts the settings. ENG/INT flip the flag once the rules land.
 - The new actions are registered in `rules/seafarers.ts` as `NOT_IMPLEMENTED` stubs. Until ENG implements them, every phase constructor sets `allowPirate: false` and `via: 'robber'`.
 
 ## Workstreams after the contract merges

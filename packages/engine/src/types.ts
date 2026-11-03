@@ -72,6 +72,13 @@ export interface Board {
   layoutId: string;
   hexes: Hex[];
   ports: Port[];
+  /**
+   * Home islands (indices into graphFor(board).islandOf): setup settlements go only there. Every
+   * island when the layout names none, so [0] on base/ext56 boards.
+   */
+  homeIslands: number[];
+  /** VP for a player's first settlement on each non-home island; 0 without islands. */
+  islandBonusVP: number;
 }
 
 // ---------------------------------------------------------------- config
@@ -198,8 +205,12 @@ export type Phase =
        * seat chooses at the same time (like discard); the phase ends when all are done.
        */
       pending: Record<string, number>;
-      /** Phase to continue with once every choice is made. */
-      returnTo: 'preRoll' | 'main' | 'setup';
+      /**
+       * The exact phase to restore once every choice is made: `main` after a production roll,
+       * the next `setup` step (index/step/lastSettlement) or `preRoll` after a second setup
+       * settlement next to gold.
+       */
+      resume: Extract<Phase, { kind: 'setup' | 'preRoll' | 'main' }>;
     }
   | { kind: 'gameOver'; winner: Seat };
 
@@ -302,7 +313,8 @@ export type ActionType = Action['type'];
 
 export type GameEvent =
   | { type: 'setupPlaced'; seat: Seat; kind: 'settlement' | 'road' | 'ship'; at: string }
-  | { type: 'setupResources'; seat: Seat; resources: ResourceCounts }
+  /** `gold`: resources still to choose from adjacent gold hexes (goldChoice follows); absent if 0. */
+  | { type: 'setupResources'; seat: Seat; resources: ResourceCounts; gold?: number }
   | { type: 'rolled'; seat: Seat; dice: [number, number]; total: number }
   /**
    * Per-seat gains from a production roll. Keys are seats as strings. `gold`: gold-hex yields

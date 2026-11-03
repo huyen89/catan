@@ -1,6 +1,7 @@
 import type { GameConfig } from '@hexhaven/engine';
 import {
   PLAYER_COLORS,
+  mergeRoomSettings,
   type BotDifficulty,
   type RoomInfo,
   type RoomSettings,
@@ -10,6 +11,12 @@ import {
 import type { RoomRow } from '../db/rooms';
 import { AppError } from '../errors';
 import type { GameRunner, RunnerSeat } from './GameRunner';
+
+/**
+ * Whether games may start with the Open Seas ('seafarers') variant. The lobby already accepts the
+ * setting; starting is refused with VARIANT_NOT_READY until the engine rules land (ENG/INT flip).
+ */
+export const OPEN_SEAS_PLAYABLE = false;
 
 export interface SeatState {
   kind: 'open' | 'human' | 'bot';
@@ -249,7 +256,7 @@ export class Room {
   updateSettings(userId: string, patch: Partial<RoomSettings>): void {
     this.assertHost(userId);
     this.assertLobby();
-    this.settings = { ...this.settings, ...patch };
+    this.settings = mergeRoomSettings(this.settings, patch);
     const n = this.settings.maxSeats;
     if (this.seats.length > n) this.seats = this.seats.slice(0, n);
     while (this.seats.length < n) this.seats.push(openSeat());
@@ -315,7 +322,10 @@ export class Room {
    * Validate that the room can start (host only, every seat filled, every non-host human ready)
    * and return the engine config inputs.
    */
-  startConfig(userId: string): Partial<GameConfig> & { players: number } {
+  startConfig(
+    userId: string,
+    { openSeas = OPEN_SEAS_PLAYABLE }: { openSeas?: boolean } = {},
+  ): Partial<GameConfig> & { players: number } {
     this.assertHost(userId);
     this.assertLobby();
     const players = this.settings.maxSeats;
@@ -335,6 +345,9 @@ export class Room {
     const { variant } = this.settings;
     if (variant === 'base' && players > 4) {
       throw new AppError('INVALID_VARIANT', 'The base board supports 3-4 players');
+    }
+    if (variant === 'seafarers' && !openSeas) {
+      throw new AppError('VARIANT_NOT_READY', 'Open Seas is not playable yet');
     }
     const resolved = variant === 'auto' ? (players >= 5 ? 'ext56' : 'base') : variant;
     return {

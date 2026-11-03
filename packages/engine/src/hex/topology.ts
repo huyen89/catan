@@ -56,7 +56,11 @@ function deepFreeze(o: object): void {
   Object.freeze(o);
 }
 
-/** Returns a cached, deeply frozen graph — never mutate it. */
+/**
+ * Returns a cached, deeply frozen graph — never mutate it.
+ * WARNING: hexes without `terrain` count as land. Pass the board's hexes (or graphFor(board)),
+ * not bare layout coordinates, whenever the board may contain sea, or you get an all-land graph.
+ */
 export function buildGraph(coords: ReadonlyArray<GraphHex>): BoardGraph {
   // Sea hexes get a '~' suffix: same coordinates with a different sea pattern is another graph.
   const key = coords

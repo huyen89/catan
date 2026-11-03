@@ -1,6 +1,6 @@
 import type { Board, GameConfig, Hex, HexId, Port, PortType, Terrain } from '../types';
 import { hexId, hexNeighbors } from '../hex/coords';
-import { buildGraph } from '../hex/topology';
+import { buildGraph, type BoardGraph } from '../hex/topology';
 import { nextInt, shuffle, type RngState } from '../rng';
 import type { LayoutDef } from './layouts';
 import { placeRandomTokens } from './numbers';
@@ -64,7 +64,21 @@ export function generateBoard(
     placeTokens(pool, layout, rng);
   }
 
-  return { layoutId: layout.id, hexes, ports: placePorts(layout, hexes, config.portMode, rng) };
+  // The generated hexes carry terrain, so on sea-framed boards this is the land/sea graph.
+  const g = buildGraph(hexes);
+  const ports = placePorts(layout, g, config.portMode, rng);
+  // Home islands: those containing a layout home hex; every island when the layout names none.
+  const islands = new Set(Object.values(g.islandOf));
+  const home = layout.homeHexes
+    ? layout.homeHexes.map((h) => g.islandOf[h]).filter((i): i is number => i !== undefined)
+    : [...islands];
+  return {
+    layoutId: layout.id,
+    hexes,
+    ports,
+    homeIslands: [...new Set(home)].sort((a, b) => a - b),
+    islandBonusVP: layout.islandBonusVP ?? 0,
+  };
 }
 
 /** 'random' number mode: constrained placement over the producing (pool) hexes. */
@@ -97,19 +111,50 @@ function placeSpiralTokens(hexes: Hex[], layout: LayoutDef, rng: RngState): bool
   return true;
 }
 
+/** True when the coastline walk is one closed cycle (boards without inner sea). */
+function singleCoast(g: BoardGraph): boolean {
+  const c = g.coastEdges;
+  return c.every((e, i) => {
+    const next = g.edgeVertices[c[(i + 1) % c.length]!]!;
+    return g.edgeVertices[e]!.some((v) => next.includes(v));
+  });
+}
+
+/**
+ * Random ports on a coast made of several cycles (islands): a shuffled greedy pick of coastal
+ * edges that share no vertex with an already chosen port (the same guarantee as the one-cycle
+ * gap of 2). [CONTRACT minimal support — GEN may replace it with a uniform per-island scheme.]
+ */
+function randomPortsByAdjacency(g: BoardGraph, count: number, rng: RngState): number[] {
+  const used = new Set<string>();
+  const out: number[] = [];
+  for (const slot of shuffle(
+    rng,
+    g.coastEdges.map((_, i) => i),
+  )) {
+    if (out.length === count) break;
+    const ends = g.edgeVertices[g.coastEdges[slot]!]!;
+    if (ends.some((v) => used.has(v))) continue;
+    ends.forEach((v) => used.add(v));
+    out.push(slot);
+  }
+  if (out.length < count) throw new Error(`randomPorts: ${count} ports do not fit`);
+  return out.sort((a, b) => a - b);
+}
+
 function placePorts(
   layout: LayoutDef,
-  hexes: readonly Hex[],
+  g: BoardGraph,
   mode: GameConfig['portMode'],
   rng: RngState,
 ): Port[] {
-  // The generated hexes carry terrain, so on sea-framed boards this walks the land|sea coasts.
-  const g = buildGraph(hexes);
   const types = shuffle(rng, expandPool<PortType>(layout.portPool));
   const slots =
-    mode === 'random'
-      ? randomPortPositions(g.coastEdges.length, types.length, rng)
-      : layout.portSlots.map((s) => s % g.coastEdges.length);
+    mode !== 'random'
+      ? layout.portSlots.map((s) => s % g.coastEdges.length)
+      : singleCoast(g)
+        ? randomPortPositions(g.coastEdges.length, types.length, rng)
+        : randomPortsByAdjacency(g, types.length, rng);
   if (slots.length !== types.length) {
     throw new Error(`Layout ${layout.id}: ${types.length} port types for ${slots.length} slots`);
   }

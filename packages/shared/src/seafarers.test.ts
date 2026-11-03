@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SCENARIO_IDS } from '@hexhaven/engine';
 import { actionSchema } from './actions';
-import { DEFAULT_ROOM_SETTINGS, roomSettingsSchema } from './room';
+import { DEFAULT_ROOM_SETTINGS, mergeRoomSettings, roomSettingsSchema } from './room';
 
 describe('Open Seas wire schemas', () => {
   it('accepts the new actions and rejects malformed ones', () => {
@@ -32,5 +32,29 @@ describe('Open Seas wire schemas', () => {
     expect(
       roomSettingsSchema.safeParse({ ...DEFAULT_ROOM_SETTINGS, scenario: 'atlantis' }).success,
     ).toBe(false);
+  });
+
+  it('mergeRoomSettings applies scenario VP targets unless the patch sets vpToWin', () => {
+    const d = DEFAULT_ROOM_SETTINGS;
+    expect(mergeRoomSettings(d, { variant: 'seafarers' }).vpToWin).toBe(14);
+    expect(mergeRoomSettings(d, { variant: 'seafarers', scenario: 'archipelago' }).vpToWin).toBe(
+      13,
+    );
+    expect(mergeRoomSettings(d, { variant: 'seafarers', vpToWin: 9 }).vpToWin).toBe(9);
+    const sea = {
+      ...d,
+      variant: 'seafarers' as const,
+      scenario: 'archipelago' as const,
+      vpToWin: 11,
+    };
+    expect(mergeRoomSettings(sea, { turnTimerSec: 30 }).vpToWin).toBe(11);
+    expect(mergeRoomSettings(sea, { scenario: 'archipelago' }).vpToWin).toBe(11);
+    expect(mergeRoomSettings(sea, { scenario: 'newShores' }).vpToWin).toBe(14);
+    // Without an explicit scenario the seat count picks it: 6 seats -> grandVoyage.
+    const auto = { ...d, variant: 'seafarers' as const, maxSeats: 4, vpToWin: 11 };
+    expect(mergeRoomSettings(auto, { maxSeats: 6 }).vpToWin).toBe(14);
+    expect(mergeRoomSettings(sea, { variant: 'base' }).vpToWin).toBe(10);
+    expect(mergeRoomSettings(d, { maxSeats: 5 }).vpToWin).toBe(10);
+    expect(mergeRoomSettings(d, { vpToWin: undefined })).toEqual(d);
   });
 });

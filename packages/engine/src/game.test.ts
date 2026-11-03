@@ -8,6 +8,12 @@ import type { Action, GameState } from './types';
 import { toPlayerView } from './view';
 import { VARIANTS, defaultScenarioFor, variantFor } from './variants';
 
+const HOME_ISLANDS: Record<ScenarioId, number[]> = {
+  newShores: [0],
+  archipelago: [0, 1, 3, 4],
+  grandVoyage: [0],
+};
+
 const PLAYERS: Record<ScenarioId, number[]> = {
   newShores: [3, 4],
   archipelago: [3, 4],
@@ -107,6 +113,14 @@ describe('Open Seas contract: createGame', () => {
         expect(totalResources(s.bank)).toBe(5 * variant.bankPerResource);
         expect(s.devDeck).toHaveLength(Object.values(variant.devDeck).reduce((a, b) => a + b));
         expect(toPlayerView(s, 0)).toMatchObject({ ships: {}, pirate: s.pirate, islandBonus: {} });
+        expect(s.board.homeIslands).toEqual(HOME_ISLANDS[id]);
+        expect(s.board.islandBonusVP).toBe(2);
+        for (const h of layout.homeHexes ?? [])
+          expect(s.board.homeIslands).toContain(g.islandOf[h]);
+        expect(toPlayerView(s, null).board).toMatchObject({
+          homeIslands: HOME_ISLANDS[id],
+          islandBonusVP: 2,
+        });
       });
 
   it('rejects a scenario outside its player range', () => {
@@ -128,7 +142,20 @@ describe('Open Seas contract: createGame', () => {
       expect(s.pirate).toBeNull();
       expect(s.islandBonus).toEqual({});
       for (const p of s.players) expect(p).toMatchObject({ shipsLeft: 0, bonusVP: 0 });
+      expect(s.board).toMatchObject({ homeIslands: [0], islandBonusVP: 0 });
     }
+  });
+
+  it('ports never share a vertex, in both port modes and on every scenario', () => {
+    for (const id of SCENARIO_IDS)
+      for (const portMode of ['fixed', 'random'] as const)
+        for (let i = 0; i < 25; i++) {
+          const players = PLAYERS[id][0]!;
+          const config = normalizeConfig({ players, variant: 'seafarers', scenario: id, portMode });
+          const { ports } = createGame(config, `ports-${i}`).board;
+          const vertices = ports.flatMap((p) => p.vertices);
+          expect(new Set(vertices).size, `${id}/${portMode}/${i}`).toBe(vertices.length);
+        }
   });
 
   it('Open Seas actions are registered but not implemented yet', () => {
@@ -158,6 +185,9 @@ describe('upgradeState', () => {
     delete s.ships;
     delete s.pirate;
     delete s.islandBonus;
+    const board = s.board as unknown as Record<string, unknown>;
+    delete board.homeIslands;
+    delete board.islandBonusVP;
     s.engineVersion = 1;
     s.version = 17;
     const turn = s.turn as Record<string, unknown>;
@@ -183,6 +213,7 @@ describe('upgradeState', () => {
     expect(up.islandBonus).toEqual({});
     expect(up.turn).toMatchObject({ shipMoved: false, newShips: [] });
     for (const p of up.players) expect(p).toMatchObject({ shipsLeft: 0, bonusVP: 0 });
+    expect(up.board).toMatchObject({ homeIslands: [0], islandBonusVP: 0 });
     expect(up.phase).toEqual({
       kind: 'steal',
       candidates: [1, 2],
@@ -196,6 +227,11 @@ describe('upgradeState', () => {
       returnTo: 'preRoll',
       allowPirate: false,
     });
+  });
+
+  it('refuses a state from a newer engine', () => {
+    const s = createGame(normalizeConfig({ players: 3 }), 'new');
+    expect(() => upgradeState({ ...s, engineVersion: ENGINE_VERSION + 1 })).toThrow(/newer/);
   });
 
   it('is idempotent and leaves current states equal', () => {

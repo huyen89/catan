@@ -7,7 +7,8 @@ import { VARIANTS, defaultScenarioFor, defaultVariantFor, variantFor } from './v
 
 /**
  * Rules/state-shape version. 2: Open Seas fields (ships, pirate, islandBonus, shipsLeft, bonusVP,
- * turn.shipMoved/newShips, moveRobber.allowPirate, steal.via). Older snapshots: upgradeState.
+ * board.homeIslands/islandBonusVP, turn.shipMoved/newShips, moveRobber.allowPirate, steal.via).
+ * Older snapshots: upgradeState.
  */
 export const ENGINE_VERSION = 2;
 
@@ -103,14 +104,22 @@ export function createGame(config: GameConfig, seed: string): GameState {
  * Bring a persisted state from an older ENGINE_VERSION up to the current shape: fills every field
  * added since with its default (no ships, no pirate, no bonuses; supply from the variant). Pure:
  * returns a new state and leaves `state` untouched; `version` is kept. Idempotent, so it is safe
- * to call on every load.
+ * to call on every load. Throws for a state written by a newer engine.
  */
 export function upgradeState(state: GameState): GameState {
+  if (state.engineVersion > ENGINE_VERSION) {
+    throw new Error(
+      `State from engine v${state.engineVersion} is newer than this engine (v${ENGINE_VERSION})`,
+    );
+  }
   const s = structuredClone(state);
   const variant = variantFor(s.config);
   s.ships ??= {};
   s.pirate ??= null;
   s.islandBonus ??= {};
+  // Pre-v2 boards have no sea: one island, which is home.
+  s.board.homeIslands ??= [0];
+  s.board.islandBonusVP ??= 0;
   s.turn.shipMoved ??= false;
   s.turn.newShips ??= [];
   for (const p of s.players) {

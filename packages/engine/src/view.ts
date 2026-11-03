@@ -107,6 +107,8 @@ const copyBoard = (b: Board): Board => ({
   layoutId: b.layoutId,
   hexes: b.hexes.map((h) => ({ ...h })),
   ports: b.ports.map((p) => ({ ...p, vertices: [p.vertices[0], p.vertices[1]] })),
+  homeIslands: [...b.homeIslands],
+  islandBonusVP: b.islandBonusVP,
 });
 
 function copyBuildings(src: Record<VertexId, Building>): Record<VertexId, Building> {
@@ -129,7 +131,8 @@ function copyPhase(p: Phase): Phase {
     case 'discard':
       return { kind: 'discard', pending: { ...p.pending } };
     case 'goldChoice':
-      return { ...p, pending: { ...p.pending } };
+      // `resume` is a flat phase (setup/preRoll/main): a spread copies it fully.
+      return { kind: 'goldChoice', pending: { ...p.pending }, resume: { ...p.resume } };
     case 'steal':
       return { ...p, candidates: [...p.candidates] };
     case 'specialBuild':

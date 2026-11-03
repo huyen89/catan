@@ -73,7 +73,11 @@ describe('toPlayerView', () => {
     const phases: GameState['phase'][] = [
       { kind: 'discard', pending: { '1': 4 } },
       { kind: 'steal', candidates: [1, 2], returnTo: 'main', via: 'robber' },
-      { kind: 'goldChoice', pending: { '0': 1, '2': 2 }, returnTo: 'main' },
+      {
+        kind: 'goldChoice',
+        pending: { '0': 1, '2': 2 },
+        resume: { kind: 'setup', index: 4, step: 'road', lastSettlement: '0,0,N' },
+      },
       { kind: 'specialBuild', seat: 1, queue: [2, 3] },
       { kind: 'setup', index: 1, step: 'road', lastSettlement: '0,0,N' },
     ];

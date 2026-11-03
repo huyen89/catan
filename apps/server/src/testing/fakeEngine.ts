@@ -44,7 +44,7 @@ export function createFakeEngine(opts: { turnsToWin?: number } = {}): EngineApi 
         engineVersion: 0,
         config,
         rng: [seed.length, 0, 0, 0],
-        board: { layoutId: 'fake', hexes: [], ports: [] },
+        board: { layoutId: 'fake', hexes: [], ports: [], homeIslands: [0], islandBonusVP: 0 },
         robber: '0,0',
         buildings: {},
         roads: {},

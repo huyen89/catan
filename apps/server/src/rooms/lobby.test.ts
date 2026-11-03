@@ -201,29 +201,31 @@ describe('lobby', () => {
     });
   });
 
-  it('passes the Open Seas scenario to the engine only for the seafarers variant', async () => {
+  it('Open Seas: scenario VP targets follow the settings; starting waits for the rules', async () => {
     srv = await startServer();
     const host = await player(srv.url, 'Host');
-    await ok(host.socket, 'room:create', {
+    const room = await ok(host.socket, 'room:create', {
       settings: { maxSeats: 3, variant: 'seafarers', scenario: 'archipelago' },
     });
-    for (const seat of [1, 2]) await ok(host.socket, 'room:addBot', { seat, difficulty: 'easy' });
-    const started = next(host.socket, 'game:state');
-    await ok(host.socket, 'room:start', {});
-    expect((await started).view.config).toMatchObject({
-      players: 3,
-      variant: 'seafarers',
-      scenario: 'archipelago',
-    });
+    expect(room.settings.vpToWin).toBe(13);
+    const settle = async (settings: Record<string, unknown>) => {
+      const st = next(host.socket, 'room:state');
+      await ok(host.socket, 'room:settings', { settings });
+      return (await st).settings;
+    };
+    expect((await settle({ scenario: 'newShores' })).vpToWin).toBe(14);
+    expect((await settle({ vpToWin: 11 })).vpToWin).toBe(11);
+    // Changing something unrelated keeps a custom target.
+    expect((await settle({ discardLimit: 9 })).vpToWin).toBe(11);
+    expect((await settle({ scenario: 'archipelago', vpToWin: 12 })).vpToWin).toBe(12);
+    expect((await settle({ variant: 'base' })).vpToWin).toBe(10);
+    expect((await settle({ variant: 'seafarers' })).vpToWin).toBe(13);
 
-    const other = await player(srv.url, 'Other');
-    await ok(other.socket, 'room:create', {
-      settings: { maxSeats: 3, variant: 'base', scenario: 'archipelago' },
+    for (const seat of [1, 2]) await ok(host.socket, 'room:addBot', { seat, difficulty: 'easy' });
+    expect(await emit(host.socket, 'room:start', {})).toMatchObject({
+      ok: false,
+      error: { code: 'VARIANT_NOT_READY' },
     });
-    for (const seat of [1, 2]) await ok(other.socket, 'room:addBot', { seat, difficulty: 'easy' });
-    const plain = next(other.socket, 'game:state');
-    await ok(other.socket, 'room:start', {});
-    expect(Object.keys((await plain).view.config)).not.toContain('scenario');
   });
 
   it('passes host to the next human when the host leaves; kicked users cannot rejoin', async () => {
