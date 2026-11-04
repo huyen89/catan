@@ -301,8 +301,12 @@ export function robberDamage(view: PlayerView, me: Seat, h: HexId): number {
   return score;
 }
 
-/** Scale of the reach a blocked open-ended line of ours loses while the pirate sits on it. */
-export const PIRATE_LOSS_SCALE = 1.5;
+/**
+ * Scale of the reach a blocked open-ended line of ours loses while the pirate sits on it. The
+ * pirate stays until someone's 7 or knight moves it, often many turns, so the loss is a multiple
+ * of the line's one-off reach (robber damage is likewise pips × weight, not per roll).
+ */
+export const PIRATE_LOSS_SCALE = 3;
 
 /**
  * What the pirate on `h` costs us: each of our open-ended ships on its edges can neither move nor
@@ -312,10 +316,12 @@ export const PIRATE_LOSS_SCALE = 1.5;
 export function ownPirateLoss(view: PlayerView, h: HexId | null, planner: SeaPlanner): number {
   if (h === null) return 0;
   const { graph } = boardInfo(view);
+  // With no settlement left to build, a line leads nowhere we could use.
+  const expanding = view.players[planner.seat]!.settlementsLeft > 0;
   let loss = 0;
   for (const e of graph.hexEdges[h] ?? []) {
     if (pieceAt(view.ships, e) !== planner.seat) continue;
-    const end = planner.openEnd(e);
+    const end = expanding ? planner.openEnd(e) : null;
     loss += end === null ? 0.5 : 1 + planner.reach(end, 'ship') * PIRATE_LOSS_SCALE;
   }
   return loss;
