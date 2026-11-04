@@ -39,7 +39,12 @@ Critical path: M0 → ENG → BOT → INT → M3.
 - [x] M2 BOT (#7) · INT (lobby → full game, trade, reconnect, voice e2e)
 - [x] M3 hardening (#9 contract, #10 SRV, #11 VOX, #12 ENG, #13 WEB polish, #14 BOT trading). Remaining owner-only check:
       verify Cloudflare TURN relay from a phone on cellular data (`docs/DEPLOY.md` step 6).
-- [ ] INT: server uses per-seat `BotPlayer`, waits for trade answers; e2e for rematch/replay/phone layout
+- [x] INT: server uses per-seat `BotPlayer`, waits for trade answers; e2e for rematch/replay/phone layout (#16)
 - [x] M4 quality of life: rematch, history, replay viewer, stats, sound effects, phone landscape layout (#10, #13)
 - [ ] M5 Open Seas variant — design in `docs/SEAFARERS.md`
+  - [x] contract (#17, #21) · GEN (#18) · ENG (#19) · WEB (#20)
+  - [ ] SRV + INT: playable (start gate removed), timeout fallback for gold/ships/pirate,
+        `GameSummary.scenario`, scenario golden boards, Open Seas e2e
+  - [ ] BOT: ships, gold, pirate, ship moves; sim covers every scenario
+  - [ ] WEB follow-up: history rows show the scenario name (`GameSummary.scenario`)
 - [ ] M6 Cities & Knights (not started)
