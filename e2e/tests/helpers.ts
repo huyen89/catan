@@ -117,7 +117,13 @@ export async function step(page: Page, opts: StepOptions = {}): Promise<'over' |
 
   // Open Seas: enter ship-building mode; the next step clicks a highlighted edge.
   const buildShip = page.getByTestId('build-ship');
-  if (opts.ships && (await buildShip.isVisible()) && (await buildShip.isEnabled())) {
+  // Already pressed means "cancel": leave it (the mode drops itself when it no longer applies).
+  if (
+    opts.ships &&
+    (await buildShip.isVisible()) &&
+    (await buildShip.isEnabled()) &&
+    (await buildShip.getAttribute('aria-pressed')) !== 'true'
+  ) {
     return tryClick(buildShip);
   }
 
