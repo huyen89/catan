@@ -14,7 +14,9 @@ const MAX_TURNS = 120;
 const stateOf = async (page: Page, code: string) =>
   (await (await page.request.get(`/api/test/rooms/${code}/state`)).json()) as TestState;
 
-test('Open Seas: a human and two bots play New Shores to game over (or a turn bound)', async ({ browser }) => {
+test('Open Seas: a human and two bots play New Shores to game over (or a turn bound)', async ({
+  browser,
+}) => {
   test.setTimeout(400_000);
   const alice = await newPlayer(browser, 'Alice');
   const { page } = alice;
