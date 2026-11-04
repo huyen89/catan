@@ -131,6 +131,12 @@ export function decide(view: PlayerView, opts: BotOptions, memo?: BotMemo): Acti
   throw new Error(`bot: no strategy for phase ${view.phase.kind}`);
 }
 
+/** What the viewer's bot is saving for right now (tests and debugging). */
+export function buildTarget(view: PlayerView, opts: BotOptions): BuildTarget {
+  if (view.viewer === null || !view.legal) throw new Error('bot: spectator view');
+  return new Bot(view, view.viewer, opts, null).target();
+}
+
 /**
  * A bot driving one seat for a whole game. Keeps a per-turn trade memo between calls so its
  * own offers are capped and never repeated; otherwise identical to `decide`.

@@ -3,6 +3,7 @@ import {
   COSTS,
   applyAction,
   createGame,
+  getPendingActors,
   graphFor,
   normalizeConfig,
   resourcesOf,
@@ -17,8 +18,16 @@ import {
   type Seat,
   type VertexId,
 } from '@hexhaven/engine';
-import { decide } from './index';
-import { SeaPlanner, chooseGold, islandBonusValue, islandOfVertex } from './sea';
+import { seatProduction } from './eval';
+import { BotPlayer, buildTarget, decide } from './index';
+import {
+  SeaPlanner,
+  buildableShipEdges,
+  chooseGold,
+  islandBonusValue,
+  islandOfVertex,
+  openShipEnd,
+} from './sea';
 import { simulateGame } from './sim/simulate';
 
 const opts = { difficulty: 'hard' as const, random: () => 0.5 };
@@ -264,6 +273,100 @@ describe('Open Seas planning', () => {
     expect(action.type).toBe('CHOOSE_GOLD');
   });
 
+  it('keeps the lumber a pending ship needs instead of building a road with it', () => {
+    let checked = 0;
+    const base = seaGame();
+    const g = graphFor(base.board);
+    for (const v of homeCoast(base, g)) {
+      const s = structuredClone(base);
+      settle(s, 0, v);
+      inPhase(s, { kind: 'main' });
+      setHand(s, 0, { lumber: 2, brick: 1 });
+      const rich = toPlayerView(s, 0);
+      if (buildTarget(rich, opts) !== 'ship' || decide(rich, opts).type !== 'BUILD_ROAD') continue;
+      // With two lumber the road leaves enough for the ship; with one it would not.
+      setHand(s, 0, { lumber: 1, brick: 1 });
+      const poor = toPlayerView(s, 0);
+      expect(buildTarget(poor, opts)).toBe('ship');
+      expect(decide(poor, opts).type).not.toBe('BUILD_ROAD');
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  it('counts gold production as a wildcard spread over the resources', () => {
+    const s = seaGame();
+    const g = graphFor(s.board);
+    const gold = s.board.hexes.find((h) => h.terrain === 'gold')!;
+    gold.token = 6;
+    const v = g.hexVertices[gold.id]!.find((x) =>
+      g.vertexHexes[x]!.every((h) => h === gold.id || g.islandOf[h] === undefined),
+    );
+    if (!v) throw new Error('no vertex touching only the gold hex');
+    settle(s, 0, v, 'city');
+    const prod = seatProduction(toPlayerView(s, 0), 0);
+    expect(prod).toEqual(resourcesOf({ brick: 2, lumber: 2, wool: 2, grain: 2, ore: 2 }));
+  });
+
+  it('mirrors the engine: ship edges, ship moves and islands match getLegal over bot games', () => {
+    let shipChecks = 0;
+    let moveChecks = 0;
+    let islandChecks = 0;
+    for (const [scenario, players] of [
+      ['newShores', 4],
+      ['archipelago', 3],
+      ['grandVoyage', 5],
+    ] as const) {
+      let s = createGame(
+        normalizeConfig({ players, variant: 'seafarers', scenario }),
+        `drift-${scenario}`,
+      );
+      const bots = s.players.map(() => new BotPlayer({ difficulty: 'normal', random: () => 0.3 }));
+      for (let step = 0; step < 4000 && s.phase.kind !== 'gameOver'; step++) {
+        const actor = getPendingActors(s)[0]!;
+        const view = toPlayerView(s, actor);
+        if (s.phase.kind === 'main' && actor === s.turn.current) {
+          const me = actor;
+          if (view.players[me]!.shipsLeft > 0) {
+            expect(buildableShipEdges(view, me)).toEqual(view.legal!.shipEdges);
+            shipChecks++;
+          }
+          if (!view.turn.shipMoved) {
+            const g = graphFor(view.board);
+            const expected: Record<EdgeId, EdgeId[]> = {};
+            for (const from of Object.keys(view.ships).sort()) {
+              if (view.ships[from] !== me || view.turn.newShips.includes(from)) continue;
+              if (openShipEnd(view, view.ships, me, from) === null) continue;
+              if (view.pirate !== null && g.edgeHexes[from]!.includes(view.pirate)) continue;
+              const lifted = { ...view.ships };
+              delete lifted[from];
+              const to = buildableShipEdges(view, me, lifted).filter((e) => e !== from);
+              if (to.length > 0) expected[from] = to;
+            }
+            expect(expected).toEqual(view.legal!.shipMoves);
+            moveChecks++;
+          }
+        }
+        const r = applyAction(s, actor, bots[actor]!.decide(view));
+        if (!r.ok) throw new Error(r.error.message);
+        for (const ev of r.events) {
+          if (ev.type !== 'islandBonus') continue;
+          const built = r.events.find(
+            (x) => (x.type === 'built' && x.kind === 'settlement') || x.type === 'setupPlaced',
+          );
+          if (built && 'at' in built) {
+            expect(islandOfVertex(toPlayerView(r.state, actor), built.at)).toBe(ev.island);
+            islandChecks++;
+          }
+        }
+        s = r.state;
+      }
+    }
+    expect(shipChecks).toBeGreaterThan(100);
+    expect(moveChecks).toBeGreaterThan(100);
+    expect(islandChecks).toBeGreaterThan(0);
+  });
+
   describe('robber or pirate', () => {
     /** Seat 1 (the leader) has an open ship on a sea hex away from the pirate. */
     function setupPirateTarget(): { s: GameState; hex: HexId } {
@@ -291,6 +394,90 @@ describe('Open Seas planning', () => {
       const action = decide(toPlayerView(s, 0), opts);
       expect(action).toEqual({ type: 'MOVE_PIRATE', hex });
       expect(applyAction(s, 0, action).ok).toBe(true);
+    });
+
+    /**
+     * Seat 0 has an open-ended ship from a home coast settlement pointing at the best line on the
+     * board, and the pirate sits on that ship's sea hex. With `anchored`, a second ship of seat 0
+     * continues the line past it (off the pirate's hex), so the blocked ship is anchored.
+     * Seat 1 offers a modest robber target: a settlement on a 4 off the home island.
+     */
+    function blockedLine(anchored: boolean): { s: GameState; robberHex: HexId } {
+      const base = seaGame();
+      const g = graphFor(base.board);
+      barrenHome(base, g);
+      let best: { v: VertexId; e: EdgeId; value: number } | null = null;
+      for (const v of homeCoast(base, g)) {
+        const t = structuredClone(base);
+        settle(t, 0, v);
+        const p = new SeaPlanner(toPlayerView(t, 0), 0, resourcesOf({}));
+        for (const e of g.vertexEdges[v]!) {
+          if (!g.seaEdges.includes(e)) continue;
+          const value = p.edgeValue(e, 'ship');
+          if (!best || value > best.value) best = { v, e, value };
+        }
+      }
+      const { v, e } = best!;
+      const s = structuredClone(base);
+      settle(s, 0, v);
+      ship(s, 0, e);
+      const w = g.edgeVertices[e]!.find((x) => x !== v)!;
+      const seaHexes = g.edgeHexes[e]!.filter((h) => g.islandOf[h] === undefined);
+      let pirate = seaHexes[0]!;
+      if (anchored) {
+        const pair = g.vertexEdges[w]!.flatMap((e2) =>
+          e2 === e || !g.seaEdges.includes(e2)
+            ? []
+            : seaHexes.filter((h) => !g.edgeHexes[e2]!.includes(h)).map((h) => [e2, h] as const),
+        )[0];
+        if (!pair) throw new Error('no continuation off the pirate hex');
+        ship(s, 0, pair[0]);
+        pirate = pair[1];
+      }
+      s.pirate = pirate;
+      const target = s.board.hexes.find(
+        (h) =>
+          h.terrain !== 'gold' &&
+          g.islandOf[h.id] !== undefined &&
+          !s.board.homeIslands.includes(g.islandOf[h.id]!),
+      )!;
+      target.terrain = 'fields';
+      target.token = 4;
+      settle(s, 1, g.hexVertices[target.id]![0]!);
+      setHand(s, 1, { wool: 1 });
+      return { s, robberHex: target.id };
+    }
+
+    it('moves the pirate off its own open-ended line rather than rob a modest hex', () => {
+      const { s } = blockedLine(false);
+      inPhase(s, { kind: 'moveRobber', returnTo: 'main', allowPirate: true });
+      const action = decide(toPlayerView(s, 0), opts);
+      expect(action.type).toBe('MOVE_PIRATE');
+      expect(applyAction(s, 0, action).ok).toBe(true);
+    });
+
+    it('robs instead when the pirate only sits next to an anchored ship', () => {
+      const { s, robberHex } = blockedLine(true);
+      inPhase(s, { kind: 'moveRobber', returnTo: 'main', allowPirate: true });
+      expect(decide(toPlayerView(s, 0), opts)).toEqual({ type: 'MOVE_ROBBER', hex: robberHex });
+    });
+
+    it('plays a knight for the pirate only when the knight would move the pirate', () => {
+      const open = blockedLine(false).s;
+      open.players[0]!.devCards = ['knight'];
+      inPhase(open, { kind: 'preRoll' });
+      expect(play(open, 0)).toEqual({ type: 'PLAY_KNIGHT' });
+      let r = applyAction(open, 0, { type: 'PLAY_KNIGHT' });
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(decide(toPlayerView(r.state, 0), opts).type).toBe('MOVE_PIRATE');
+
+      const anchored = blockedLine(true).s;
+      anchored.players[0]!.devCards = ['knight'];
+      inPhase(anchored, { kind: 'preRoll' });
+      expect(decide(toPlayerView(anchored, 0), opts)).toEqual({ type: 'ROLL' });
+      r = applyAction(anchored, 0, { type: 'ROLL' });
+      expect(r.ok).toBe(true);
     });
 
     it('prefers the robber when it blocks a rich hex of the leader', () => {
