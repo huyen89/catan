@@ -54,7 +54,7 @@ export function historyRow(g: GameSummary): HistoryRow {
   return {
     gameId: g.gameId,
     when: g.finishedAt ?? g.createdAt,
-    variant: variantLabel(g.variant),
+    variant: variantLabel(g.variant, g.scenario ?? undefined),
     players: [...g.players]
       .sort((a, b) => a.seat - b.seat)
       .map((p) => ({

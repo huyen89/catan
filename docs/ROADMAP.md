@@ -43,8 +43,7 @@ Critical path: M0 → ENG → BOT → INT → M3.
 - [x] M4 quality of life: rematch, history, replay viewer, stats, sound effects, phone landscape layout (#10, #13)
 - [ ] M5 Open Seas variant — design in `docs/SEAFARERS.md`
   - [x] contract (#17, #21) · GEN (#18) · ENG (#19) · WEB (#20)
-  - [ ] SRV + INT: playable (start gate removed), timeout fallback for gold/ships/pirate,
-        `GameSummary.scenario`, scenario golden boards, Open Seas e2e
-  - [ ] BOT: ships, gold, pirate, ship moves; sim covers every scenario
-  - [ ] WEB follow-up: history rows show the scenario name (`GameSummary.scenario`)
+  - [x] BOT: ships, gold, pirate, ship moves; sim covers every scenario (#22)
+  - [ ] SRV + INT (#23): playable (start gate removed), timeout fallback for gold/ships/pirate,
+        `GameSummary.scenario` (history shows the scenario name), scenario golden boards, Open Seas e2e
 - [ ] M6 Cities & Knights (not started)

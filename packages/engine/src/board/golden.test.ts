@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createGame, normalizeConfig } from '../game';
 import { seedRng } from '../rng';
 import type { GameConfig, NumberMode, PortMode, VariantId } from '../types';
+import { variantFor } from '../variants';
 import { generateBoard } from './generate';
 import { BASE_LAYOUT, EXT56_LAYOUT, SCENARIO_IDS, SCENARIOS } from './layouts';
 
@@ -165,7 +166,8 @@ function scenarioHashes(): Record<string, string> {
           JSON.stringify({ board, rng }),
         );
       }
-    for (let players = layout.minPlayers ?? 3; players <= (layout.maxPlayers ?? 4); players++)
+    const { minPlayers, maxPlayers } = variantFor({ variant: 'seafarers', scenario });
+    for (let players = minPlayers; players <= maxPlayers; players++)
       for (const seed of SEEDS)
         got[`game/${scenario}/${players}/${seed}`] = fnv1a(
           JSON.stringify(

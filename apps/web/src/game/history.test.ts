@@ -50,6 +50,10 @@ describe('historyRow', () => {
 
   it('labels wins, active, abandoned and spectated games', () => {
     expect(historyRow(game({ winner: 0 })).result).toBe('won');
+    expect(historyRow(game({ variant: 'seafarers', scenario: 'newShores' })).variant).toBe(
+      'Open Seas · New Shores',
+    );
+    expect(historyRow(game({ variant: 'seafarers', scenario: null })).variant).toBe('Open Seas');
     const active = historyRow(game({ status: 'active', winner: null, finishedAt: null }));
     expect(active).toMatchObject({ result: 'active', when: 1_000, canReplay: false });
     expect(active.winnerName).toBeNull();

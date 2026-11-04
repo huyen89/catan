@@ -94,7 +94,12 @@ export function newSeaGame(
   return newGame(players, { variant: 'seafarers', scenario }, seed);
 }
 
-/** Overwrite a hex's terrain/token (tests that need a known board). Mutates and returns state. */
+/**
+ * Overwrite a hex's terrain/token (tests that need a known board). Mutates and returns state.
+ * The edit is in place, so `graphFor` keeps the graph it remembered for this board: switching a
+ * hex between sea and land here leaves that graph stale. Only swap land terrains (or build a new
+ * board) once the graph may have been read.
+ */
 export function setHex(
   state: GameState,
   id: HexId,

@@ -1,4 +1,4 @@
-import { SCENARIOS, type GameConfig, type ScenarioId } from '@hexhaven/engine';
+import { variantFor, type GameConfig } from '@hexhaven/engine';
 import {
   PLAYER_COLORS,
   effectiveScenario,
@@ -339,11 +339,16 @@ export class Room {
       throw new AppError('INVALID_VARIANT', 'The base board supports 3-4 players');
     }
     if (variant === 'seafarers') {
-      const layout = SCENARIOS[effectiveScenario(this.settings) as ScenarioId];
-      const [min, max] = [layout?.minPlayers ?? 3, layout?.maxPlayers ?? 6];
-      if (!layout || players < min || players > max) {
-        const name = layout?.name ?? 'This scenario';
-        throw new AppError('INVALID_VARIANT', `${name} supports ${min}-${max} players`);
+      const { layout, minPlayers, maxPlayers } = variantFor({
+        variant,
+        scenario: effectiveScenario(this.settings),
+      });
+      if (players < minPlayers || players > maxPlayers) {
+        const name = layout.name ?? 'This scenario';
+        throw new AppError(
+          'INVALID_VARIANT',
+          `${name} supports ${minPlayers}-${maxPlayers} players`,
+        );
       }
     }
     const resolved = variant === 'auto' ? (players >= 5 ? 'ext56' : 'base') : variant;
