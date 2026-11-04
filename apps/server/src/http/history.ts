@@ -23,6 +23,7 @@ function summarize(g: GameWithPlayers, userId: string): GameSummary {
     gameId: g.id,
     roomCode: g.roomCode,
     variant: g.config.variant,
+    scenario: g.config.scenario ?? null,
     status: g.status,
     winner: g.winner,
     mySeat: mine?.seat ?? null,

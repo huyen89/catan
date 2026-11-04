@@ -15,6 +15,9 @@ export function fallbackActions(view: PlayerView, seat: Seat): Action[] {
         out.push({ type: 'PLACE_SETTLEMENT', vertex: legal.settlementVertices[0] });
       if (phase.step === 'road' && legal?.roadEdges[0])
         out.push({ type: 'PLACE_ROAD', edge: legal.roadEdges[0] });
+      // Open Seas: a coastal settlement may have no free road edge, only sea edges.
+      if (phase.step === 'road' && legal?.shipEdges[0])
+        out.push({ type: 'PLACE_SHIP', edge: legal.shipEdges[0] });
       break;
     case 'preRoll':
       out.push({ type: 'ROLL' });
@@ -24,8 +27,16 @@ export function fallbackActions(view: PlayerView, seat: Seat): Action[] {
       if (discard) out.push(discard);
       break;
     }
+    case 'goldChoice': {
+      const choice = autoGold(view, legal?.goldCount ?? phase.pending[String(seat)] ?? 0);
+      if (choice) out.push(choice);
+      break;
+    }
     case 'moveRobber':
       if (legal?.robberHexes[0]) out.push({ type: 'MOVE_ROBBER', hex: legal.robberHexes[0] });
+      // Open Seas: the pirate is the other option when the robber has nowhere to go.
+      if (phase.allowPirate && legal?.pirateHexes[0])
+        out.push({ type: 'MOVE_PIRATE', hex: legal.pirateHexes[0] });
       break;
     case 'steal':
       if (legal?.stealVictims[0] !== undefined)
@@ -33,6 +44,7 @@ export function fallbackActions(view: PlayerView, seat: Seat): Action[] {
       break;
     case 'roadBuilding':
       if (legal?.roadEdges[0]) out.push({ type: 'BUILD_ROAD', edge: legal.roadEdges[0] });
+      if (legal?.shipEdges[0]) out.push({ type: 'BUILD_SHIP', edge: legal.shipEdges[0] });
       break;
     case 'main':
       for (const t of view.trades)
@@ -65,4 +77,18 @@ function autoDiscard(view: PlayerView, seat: Seat, count: number): Action | null
     resources[r]++;
   }
   return { type: 'DISCARD', resources };
+}
+
+/** Choose `count` gold resources, each time taking what the bank holds most of. */
+function autoGold(view: PlayerView, count: number): Action | null {
+  if (count <= 0) return null;
+  const left = { ...view.bank };
+  const resources = { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 };
+  for (let i = 0; i < count; i++) {
+    const r = RESOURCES.reduce((best, k) => (left[k] > left[best] ? k : best), RESOURCES[0]);
+    if (left[r] <= 0) return null;
+    left[r]--;
+    resources[r]++;
+  }
+  return { type: 'CHOOSE_GOLD', resources };
 }

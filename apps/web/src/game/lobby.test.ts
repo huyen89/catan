@@ -12,7 +12,6 @@ import {
   scenarioName,
   scenarioOptions,
   settingsPatch,
-  startErrorText,
 } from './lobby';
 
 describe('rematchRole', () => {
@@ -83,10 +82,5 @@ describe('Open Seas lobby settings', () => {
         const s = { maxSeats, ...(scenario && { scenario }) };
         expect(effectiveScenario(s)).toBe(sharedEffectiveScenario(s));
       }
-  });
-
-  it('explains a refused Open Seas start', () => {
-    expect(startErrorText('VARIANT_NOT_READY')).toMatch(/Open Seas/);
-    expect(startErrorText('NOT_READY')).toBeNull();
   });
 });

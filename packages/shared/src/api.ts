@@ -47,6 +47,8 @@ export interface GameSummary {
   gameId: string;
   roomCode: string;
   variant: GameConfig['variant'];
+  /** Open Seas scenario id (e.g. 'newShores'); null for variants without scenarios. */
+  scenario: string | null;
   status: 'active' | 'finished' | 'abandoned';
   winner: Seat | null;
   /** The requesting user's seat in this game. */

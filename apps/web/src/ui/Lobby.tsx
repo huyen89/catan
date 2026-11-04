@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { BotDifficulty, RoomInfo, RoomSettings, SeatInfo } from '@hexhaven/shared';
 import {
   canStart,
@@ -7,9 +7,8 @@ import {
   parseBoundedInt,
   scenarioOptions,
   settingsPatch,
-  startErrorText,
 } from '../game/lobby';
-import { AckFailure, errorMessage } from '../net/emit';
+import { errorMessage } from '../net/emit';
 import { emitAck } from '../net/socket';
 import { leaveRoom, request } from '../net/session';
 import { useSession } from '../store/session';
@@ -302,10 +301,6 @@ export function Lobby({ room }: { room: RoomInfo }) {
   const [difficulty, setDifficulty] = useState<Record<number, BotDifficulty>>({});
   const [filling, setFilling] = useState(false);
   const [starting, setStarting] = useState(false);
-  const [startError, setStartError] = useState<string | null>(null);
-  // A refused start is about the settings at the time: drop the notice once they change.
-  const settingsKey = JSON.stringify(room.settings);
-  useEffect(() => setStartError(null), [settingsKey]);
   const isHost = room.hostUserId === user.id;
   const seats = room.seats.slice(0, room.settings.maxSeats);
   const mySeat = seats.find((s) => s.userId === user.id);
@@ -324,13 +319,10 @@ export function Lobby({ room }: { room: RoomInfo }) {
 
   const start = async () => {
     setStarting(true);
-    setStartError(null);
     try {
       await emitAck('room:start', {});
     } catch (e) {
-      const friendly = e instanceof AckFailure ? startErrorText(e.code) : null;
-      if (friendly) setStartError(friendly);
-      else toastError(errorMessage(e));
+      toastError(errorMessage(e));
     } finally {
       setStarting(false);
     }
@@ -431,11 +423,6 @@ export function Lobby({ room }: { room: RoomInfo }) {
               </>
             )}
           </div>
-          {startError && (
-            <p className="notice" role="alert" data-testid="start-error">
-              {startError}
-            </p>
-          )}
           {!isHost && (
             <p className="muted small">The host starts the game when everyone is ready.</p>
           )}

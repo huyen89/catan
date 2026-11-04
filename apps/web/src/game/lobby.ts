@@ -109,13 +109,3 @@ export function settingsPatch(
 export function effectiveScenario(s: Pick<RoomSettings, 'scenario' | 'maxSeats'>): string {
   return s.scenario ?? defaultScenarioFor('seafarers', s.maxSeats) ?? 'newShores';
 }
-
-/** Friendly text for a failed room:start (null = use the server's message). */
-export function startErrorText(code: string): string | null {
-  switch (code) {
-    case 'VARIANT_NOT_READY':
-      return 'Open Seas is still being built and cannot be started yet. Choose another board to play now.';
-    default:
-      return null;
-  }
-}

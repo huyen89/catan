@@ -8,7 +8,7 @@ import {
   type ScenarioId,
 } from '../board/layouts';
 import { hexId } from './coords';
-import { buildGraph, type BoardGraph } from './topology';
+import { buildGraph, graphFor, type BoardGraph, type GraphHex } from './topology';
 
 describe('topology', () => {
   it('base 19-hex board has 54 vertices, 72 edges, 30 coastal edges', () => {
@@ -169,5 +169,19 @@ describe('topology of sea-framed scenario boards', () => {
     expect(allLand.landHexes).toHaveLength(layout.hexes.length);
     expect(withSea.landHexes).toHaveLength(layout.hexes.length - seaOf(layout).size);
     expect(buildGraph(hexesOf(layout))).toBe(withSea);
+  });
+
+  it('graphFor remembers the graph per board object and notices replaced hexes', () => {
+    const layout = SCENARIOS.newShores;
+    const board: { hexes: GraphHex[] } = { hexes: hexesOf(layout) };
+    const g = graphFor(board);
+    expect(g).toBe(buildGraph(board.hexes));
+    expect(graphFor(board)).toBe(g);
+    // A copy (as after structuredClone) misses the per-board memo but hits the key cache.
+    expect(graphFor(structuredClone(board))).toBe(g);
+    board.hexes = layout.hexes.map((h) => ({ q: h.q, r: h.r }));
+    const allLand = graphFor(board);
+    expect(allLand).not.toBe(g);
+    expect(allLand.seaEdges).toEqual([]);
   });
 });

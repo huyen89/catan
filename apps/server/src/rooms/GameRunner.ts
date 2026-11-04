@@ -548,6 +548,14 @@ export class GameRunner {
           seats: this.engine.getPendingActors(s),
           ms: this.opts.discardMs ?? DISCARD_MS,
         };
+      case 'goldChoice':
+        // Like a discard, every owed seat chooses at once. Setup gold (one per second settlement)
+        // shares the turn number, so the setup index keeps each choice's timer separate.
+        return {
+          key: `goldChoice:${s.turn.number}:${p.resume.kind === 'setup' ? p.resume.index : p.resume.kind}`,
+          seats: this.engine.getPendingActors(s),
+          ms: this.opts.discardMs ?? DISCARD_MS,
+        };
       case 'specialBuild':
         return {
           key: `specialBuild:${s.turn.number}:${p.seat}`,
@@ -658,11 +666,22 @@ export class GameRunner {
     }
     let ok = action ? this.apply(seat, action, 'timeout').ok : false;
     if (!ok) ok = this.tryFallbacks(seat, 'timeout');
+    // One timeout settles the whole decision: the second free road/ship of road building and the
+    // steal after a robber or pirate move keep the timer's key (or get a fresh one counted as
+    // another timeout), so finish them here instead of leaving the seat without a deadline.
+    for (let i = 0; ok && i < 4 && this.continuesDecision(seat); i++) {
+      ok = this.tryFallbacks(seat, 'timeout');
+    }
     if (!ok) {
       this.opts.log.error({ gameId: this.gameId, seat }, 'no timeout action accepted');
       this.host.setController(seat, 'bot');
       this.scheduleBots();
     }
+  }
+
+  private continuesDecision(seat: Seat): boolean {
+    const k = this.current.phase.kind;
+    return !this.closed && (k === 'roadBuilding' || k === 'steal') && this.isPending(seat);
   }
 }
 

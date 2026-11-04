@@ -27,18 +27,6 @@ import {
 } from './types';
 import { variantFor } from './variants';
 
-/**
- * graphFor re-derives its cache key from every hex on each call; toPlayerView calls getLegal once
- * per seat on the same state, so remember the graph per board object (the graph depends only on
- * the hex coordinates, which never change during a game).
- */
-const graphs = new WeakMap<GameState['board'], BoardGraph>();
-function boardGraph(board: GameState['board']): BoardGraph {
-  let g = graphs.get(board);
-  if (!g) graphs.set(board, (g = graphFor(board)));
-  return g;
-}
-
 function emptySummary(): LegalSummary {
   return {
     actions: [],
@@ -133,7 +121,7 @@ export function getLegal(state: GameState, seat: Seat): LegalSummary {
   const out = emptySummary();
   const p = state.players[seat];
   if (!p) return out;
-  const graph = boardGraph(state.board);
+  const graph = graphFor(state.board);
   out.maritimeRatios = maritimeRatios(state, seat);
   out.canAfford = {
     road: hasResources(p.resources, COSTS.road),
