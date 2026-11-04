@@ -87,14 +87,18 @@ export function goldPips(view: PlayerView, v: VertexId): number {
   return n;
 }
 
-/** Current production of a seat (pips per resource), counting cities double. */
+/**
+ * Current production of a seat (pips per resource), counting cities double. Gold (Open Seas) is
+ * a wildcard: its pips are spread evenly over the five resources.
+ */
 export function seatProduction(view: PlayerView, seat: Seat): ResourceCounts {
   const out = emptyResources();
   for (const [v, b] of Object.entries(view.buildings)) {
     if (b.owner !== seat) continue;
     const p = vertexProduction(view, v);
     const mult = b.kind === 'city' ? 2 : 1;
-    for (const r of RESOURCES) out[r] += p[r] * mult;
+    const gold = (goldPips(view, v) * mult) / RESOURCES.length;
+    for (const r of RESOURCES) out[r] += p[r] * mult + gold;
   }
   return out;
 }

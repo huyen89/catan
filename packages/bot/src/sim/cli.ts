@@ -6,8 +6,9 @@
  * Without --variant the mix is the classic game with every fourth block of four games played
  * as Open Seas (so 1/4 of games, across all player counts): 3-4 players alternate New Shores and
  * Archipelago, 5-6 players play Grand Voyage. With --variant seafarers and no --players, the
- * player counts default to the scenario's range (or 3-6 when no scenario is given). */
-import { SCENARIOS, type ScenarioId, type VariantId } from '@hexhaven/engine';
+ * player counts default to the scenario's range (or 3-6 when no scenario is given); with
+ * another --variant, to that variant's player range. */
+import { SCENARIOS, VARIANTS, type ScenarioId, type VariantId } from '@hexhaven/engine';
 import type { BotDifficulty } from '../index';
 import { SimError, simulateGame, type SimResult } from './simulate';
 
@@ -37,12 +38,14 @@ if (scenarioArg !== null) {
 }
 const variant = (variantArg ?? (scenarioArg ? 'seafarers' : null)) as VariantId | null;
 const scenarioDef = scenarioArg ? SCENARIOS[scenarioArg as ScenarioId] : null;
+const range = (min: number, max: number) =>
+  Array.from({ length: max - min + 1 }, (_, i) => min + i).join(',');
+// Default player counts: the scenario's range, else the variant's, else 3-6 (the default mix).
 const defaultPlayers = scenarioDef
-  ? Array.from(
-      { length: (scenarioDef.maxPlayers ?? 6) - (scenarioDef.minPlayers ?? 3) + 1 },
-      (_, i) => (scenarioDef.minPlayers ?? 3) + i,
-    ).join(',')
-  : '3,4,5,6';
+  ? range(scenarioDef.minPlayers ?? 3, scenarioDef.maxPlayers ?? 6)
+  : variant
+    ? range(VARIANTS[variant].minPlayers, VARIANTS[variant].maxPlayers)
+    : '3,4,5,6';
 const playerCounts = arg('players', defaultPlayers).split(',').map(Number);
 const prefix = arg('seed', 'sim');
 const levels = arg('difficulty', 'normal').split(',');
@@ -105,7 +108,9 @@ console.log(
 const groups = new Map<string, SimResult[]>();
 for (const r of results) {
   const key = r.scenario ? `seafarers/${r.scenario}` : r.variant;
-  groups.set(key, [...(groups.get(key) ?? []), r]);
+  const group = groups.get(key);
+  if (group) group.push(r);
+  else groups.set(key, [r]);
 }
 for (const [key, rs] of [...groups.entries()].sort()) {
   const done = rs.filter((r) => r.finished);

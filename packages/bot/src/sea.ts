@@ -32,7 +32,11 @@ export const STEP_DISCOUNT: Record<PieceKind, number> = { road: 1, ship: 0.6 };
 /** Score points per island-bonus VP: a new island's bonus is worth more than the settlement. */
 export const BONUS_WEIGHT = 5;
 
-/** Island index of a land vertex, else null (all land hexes at a vertex share an island). */
+/**
+ * Island index of a land vertex, else null (all land hexes at a vertex share an island).
+ * Mirrors the engine's `islandOfVertex` in rules/placement.ts (not exported from the engine);
+ * sea.test.ts checks it against the engine's islandBonus events.
+ */
 export function islandOfVertex(view: PlayerView, v: VertexId): number | null {
   const { graph } = boardInfo(view);
   for (const h of graph.vertexHexes[v] ?? []) {
@@ -57,7 +61,8 @@ const pieceAt = (map: Record<EdgeId, Seat> | undefined, e: EdgeId): Seat | undef
 
 /**
  * The open end of `seat`'s ship on `e`: the vertex with neither the seat's building nor another
- * of its ships, or null if both ends are anchored.
+ * of its ships, or null if both ends are anchored. Mirrors the engine's `isOpenShip` in
+ * rules/placement.ts; sea.test.ts checks it against `legal.shipMoves`.
  */
 export function openShipEnd(
   view: PlayerView,
@@ -74,6 +79,33 @@ export function openShipEnd(
     if (!continued) return v;
   }
   return null;
+}
+
+/**
+ * Edges where `seat` could build a ship (sorted), ignoring affordability: a free sea edge off
+ * the pirate's hex touching the seat's building, or its ship at a vertex without an opponent's
+ * building. Mirrors the engine's `buildableShipEdges` in rules/placement.ts (not exported from the
+ * engine; `legal.shipEdges` is only filled while the seat may build). sea.test.ts checks it
+ * against `legal.shipEdges` over bot-played games.
+ */
+export function buildableShipEdges(
+  view: PlayerView,
+  seat: Seat,
+  ships: Record<EdgeId, Seat> = view.ships,
+): EdgeId[] {
+  const { graph } = boardInfo(view);
+  const { roads, buildings, pirate } = view;
+  return graph.seaEdges
+    .filter((e) => {
+      if (pieceAt(ships, e) !== undefined || pieceAt(roads, e) !== undefined) return false;
+      if (pirate !== null && graph.edgeHexes[e]!.includes(pirate)) return false;
+      return graph.edgeVertices[e]!.some((u) => {
+        const b = buildings[u];
+        if (b) return b.owner === seat;
+        return graph.vertexEdges[u]!.some((x) => x !== e && pieceAt(ships, x) === seat);
+      });
+    })
+    .sort();
 }
 
 export interface EdgePlan {
@@ -93,7 +125,7 @@ export class SeaPlanner {
 
   constructor(
     private readonly view: PlayerView,
-    private readonly seat: Seat,
+    readonly seat: Seat,
     private readonly have: ResourceCounts,
     private readonly ships: Record<EdgeId, Seat> = view.ships ?? {},
   ) {
@@ -269,24 +301,43 @@ export function robberDamage(view: PlayerView, me: Seat, h: HexId): number {
   return score;
 }
 
+/** Scale of the reach a blocked open-ended line of ours loses while the pirate sits on it. */
+export const PIRATE_LOSS_SCALE = 1.5;
+
 /**
- * Damage of the pirate on `h`: it blocks building and moving ships on the hex's edges (an
- * opponent's open-ended ship there is a line being built: blocking it hurts most) and lets us
- * steal from a ship owner there. Our own ships there count against it.
+ * What the pirate on `h` costs us: each of our open-ended ships on its edges can neither move nor
+ * be extended past the hex, so we lose (scaled) the reach of that line's open end. Anchored ships
+ * (both ends held) lose little: only the freedom to build next to them.
  */
-export function pirateDamage(view: PlayerView, me: Seat, h: HexId): number {
+export function ownPirateLoss(view: PlayerView, h: HexId | null, planner: SeaPlanner): number {
+  if (h === null) return 0;
   const { graph } = boardInfo(view);
+  let loss = 0;
+  for (const e of graph.hexEdges[h] ?? []) {
+    if (pieceAt(view.ships, e) !== planner.seat) continue;
+    const end = planner.openEnd(e);
+    loss += end === null ? 0.5 : 1 + planner.reach(end, 'ship') * PIRATE_LOSS_SCALE;
+  }
+  return loss;
+}
+
+/**
+ * Damage of the pirate on `h` for the planner's seat: it blocks building and moving ships on the
+ * hex's edges (an opponent's open-ended ship there is a line being built: blocking it hurts
+ * most) and lets us steal from a ship owner there. What it would cost our own lines there counts
+ * against it (`ownPirateLoss`).
+ */
+export function pirateDamage(view: PlayerView, h: HexId, planner: SeaPlanner): number {
+  const { graph } = boardInfo(view);
+  const me = planner.seat;
   const owners = new Set<Seat>();
-  let score = 0;
+  let score = -ownPirateLoss(view, h, planner);
   for (const e of graph.hexEdges[h] ?? []) {
     const owner = pieceAt(view.ships, e);
-    if (owner === undefined) continue;
+    if (owner === undefined || owner === me) continue;
     const open = openShipEnd(view, view.ships, owner, e) !== null;
-    if (owner === me) score -= open ? 4 : 2;
-    else {
-      score += (open ? 5 : 1.5) * threat(view, owner);
-      owners.add(owner);
-    }
+    score += (open ? 5 : 1.5) * threat(view, owner);
+    owners.add(owner);
   }
   for (const o of owners) if (view.players[o]!.resourceCount > 0) score += 1.5;
   return score;

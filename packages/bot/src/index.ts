@@ -21,6 +21,8 @@ import { argmax, boardInfo, missing, myHand, pips, seatProduction, type BuildTar
 import {
   SeaPlanner,
   chooseGold,
+  buildableShipEdges,
+  ownPirateLoss,
   ownShipsOn,
   pirateDamage,
   robberDamage,
@@ -220,19 +222,7 @@ class Bot {
 
   private buildableShips(): EdgeId[] {
     if (this.view.players[this.me]!.shipsLeft <= 0) return [];
-    const { graph } = boardInfo(this.view);
-    // Same rule as the engine: a free sea edge off the pirate's hex touching our building, or
-    // our ship at a vertex without an opponent's building.
-    const { ships, roads, buildings, pirate } = this.view;
-    return graph.seaEdges.filter((e) => {
-      if (Object.hasOwn(ships, e) || Object.hasOwn(roads, e)) return false;
-      if (pirate !== null && graph.edgeHexes[e]!.includes(pirate)) return false;
-      return graph.edgeVertices[e]!.some((u) => {
-        const b = buildings[u];
-        if (b) return b.owner === this.me;
-        return graph.vertexEdges[u]!.some((x) => x !== e && ships[x] === this.me);
-      });
-    });
+    return buildableShipEdges(this.view, this.me);
   }
 
   /**
@@ -266,21 +256,43 @@ class Bot {
    * does to us counts against choosing it.
    */
   moveRobberOrPirate(): Action {
-    const L = this.legal;
-    const robber = this.can('MOVE_ROBBER') ? this.bestRobberHex() : null;
-    if (!this.can('MOVE_PIRATE') || L.pirateHexes.length === 0) {
-      return { type: 'MOVE_ROBBER', hex: robber ?? L.robberHexes[0]! };
-    }
-    const pirate = this.pick(L.pirateHexes, (h) => pirateDamage(this.view, this.me, h));
+    return this.robberOrPirate(this.legal.robberHexes, this.legal.pirateHexes);
+  }
+
+  /**
+   * The robber/pirate choice over the given targets. Deterministic for a view (no noise), so
+   * `wantsKnight` can ask what a knight would do and get the move the bot will then make.
+   */
+  private robberOrPirate(robberHexes: readonly HexId[], pirateHexes: readonly HexId[]): Action {
+    const robber = argmax(robberHexes, (h) => robberDamage(this.view, this.me, h)) ?? null;
+    const pirateDmg = (h: HexId) => pirateDamage(this.view, h, this.planner);
+    const pirate =
+      this.can('MOVE_PIRATE') || this.view.phase.kind !== 'moveRobber'
+        ? (argmax(pirateHexes, pirateDmg) ?? null)
+        : null;
+    if (pirate === null) return { type: 'MOVE_ROBBER', hex: robber ?? robberHexes[0]! };
     if (robber === null) return { type: 'MOVE_PIRATE', hex: pirate };
     // What staying put costs us: the robber's grip on our hexes, the pirate's on our ships.
     const robberStays = -Math.min(0, robberDamage(this.view, this.me, this.view.robber));
-    const pirateStays = ownShipsOn(this.view, this.me, this.view.pirate) * 3;
+    const pirateStays = ownPirateLoss(this.view, this.view.pirate, this.planner);
     const viaRobber = robberDamage(this.view, this.me, robber) - pirateStays;
-    const viaPirate = pirateDamage(this.view, this.me, pirate) - robberStays;
+    const viaPirate = pirateDmg(pirate) - robberStays;
     return viaPirate > viaRobber
       ? { type: 'MOVE_PIRATE', hex: pirate }
       : { type: 'MOVE_ROBBER', hex: robber };
+  }
+
+  /** What a knight played now would do: the same choice moveRobber will make. */
+  knightMove(): Action {
+    const hexes = this.view.board.hexes;
+    const robberHexes = hexes
+      .filter((h) => h.terrain !== 'sea' && h.id !== this.view.robber)
+      .map((h) => h.id);
+    const pirateHexes =
+      this.view.pirate === null
+        ? []
+        : hexes.filter((h) => h.terrain === 'sea' && h.id !== this.view.pirate).map((h) => h.id);
+    return this.robberOrPirate(robberHexes, pirateHexes);
   }
 
   bestVictim(victims: readonly Seat[]): Seat {
@@ -359,8 +371,11 @@ class Bot {
         (v) => this.view.buildings[v]?.owner === this.me,
       );
     if (robberHurtsMe) return true;
-    // Open Seas: the pirate sits on our shipping line and we are building ships.
-    if (ownShipsOn(this.view, this.me, this.view.pirate) > 0 && this.target() === 'ship')
+    // Open Seas: the pirate sits on our shipping line, and a knight would really move it.
+    if (
+      ownShipsOn(this.view, this.me, this.view.pirate) > 0 &&
+      this.knightMove().type === 'MOVE_PIRATE'
+    )
       return true;
     if (beforeRoll) return false;
     const mine = this.view.players[this.me]!.playedKnights + 1;
@@ -410,17 +425,29 @@ class Bot {
   private expandStep(): Action | null {
     const L = this.legal;
     const me = this.view.players[this.me]!;
+    const target = this.target();
     const want =
       me.settlementsLeft > 0 &&
       L.settlementVertices.length === 0 &&
       // Don't burn resources on roads or ships when a city is within reach.
-      !(this.target() === 'city' && totalResources(missing(this.hand, COSTS.city)) <= 1);
+      !(target === 'city' && totalResources(missing(this.hand, COSTS.city)) <= 1);
     if (!want) return null;
-    const canRoad = this.can('BUILD_ROAD') && L.canAfford.road && L.roadEdges.length > 0;
     const canShip = this.can('BUILD_SHIP') && L.canAfford.ship && L.shipEdges.length > 0;
+    // Saving for a ship we can't pay yet: no road that spends the lumber it still needs.
+    const roadSpendsShip =
+      target === 'ship' && !canShip && this.hand.lumber - COSTS.road.lumber < COSTS.ship.lumber;
+    const canRoad =
+      this.can('BUILD_ROAD') && L.canAfford.road && L.roadEdges.length > 0 && !roadSpendsShip;
     if (!canRoad && !canShip) return null;
-    const road = L.roadEdges.length > 0 ? this.bestPiece(L.roadEdges, []) : null;
-    const ship = L.shipEdges.length > 0 ? this.bestPiece([], L.shipEdges) : null;
+    // Compare noiseless values; noise only breaks ties between equally good edges.
+    const value = (e: EdgeId, kind: 'road' | 'ship') =>
+      this.planner.edgeValue(e, kind) + this.noise() * 1e-6;
+    const bestOf = (edges: readonly EdgeId[], kind: 'road' | 'ship') => {
+      const edge = argmax(edges, (e) => value(e, kind));
+      return edge === undefined ? null : { edge, score: this.planner.edgeValue(edge, kind) };
+    };
+    const road = bestOf(L.roadEdges, 'road');
+    const ship = bestOf(L.shipEdges, 'ship');
     const shipUseful = ship !== null && ship.score > 0.5;
     const shipBetter = shipUseful && (road === null || ship.score > road.score);
     if (canShip && shipUseful && (shipBetter || ship.score >= road!.score * 0.7))
