@@ -76,14 +76,29 @@ export function vertexProduction(view: PlayerView, v: VertexId): ResourceCounts 
   return out;
 }
 
-/** Current production of a seat (pips per resource), counting cities double. */
+/** Pips of the gold hexes (Open Seas) around a vertex. */
+export function goldPips(view: PlayerView, v: VertexId): number {
+  const { graph, hexById } = boardInfo(view);
+  let n = 0;
+  for (const h of graph.vertexHexes[v] ?? []) {
+    const hex = hexById.get(h);
+    if (hex?.terrain === 'gold') n += pips(hex.token);
+  }
+  return n;
+}
+
+/**
+ * Current production of a seat (pips per resource), counting cities double. Gold (Open Seas) is
+ * a wildcard: its pips are spread evenly over the five resources.
+ */
 export function seatProduction(view: PlayerView, seat: Seat): ResourceCounts {
   const out = emptyResources();
   for (const [v, b] of Object.entries(view.buildings)) {
     if (b.owner !== seat) continue;
     const p = vertexProduction(view, v);
     const mult = b.kind === 'city' ? 2 : 1;
-    for (const r of RESOURCES) out[r] += p[r] * mult;
+    const gold = (goldPips(view, v) * mult) / RESOURCES.length;
+    for (const r of RESOURCES) out[r] += p[r] * mult + gold;
   }
   return out;
 }
@@ -105,6 +120,12 @@ export function scoreVertex(
     const scarcity = have[r] === 0 ? 1.35 : have[r] < 5 ? 1.1 : 0.9;
     score += prod[r] * BASE_WEIGHT[r] * scarcity;
   }
+  // Gold (Open Seas) yields any resource: worth a bit more than the best fixed one.
+  const gold = goldPips(view, v);
+  if (gold > 0) {
+    kinds++;
+    score += gold * 1.2;
+  }
   score += kinds * 0.6;
   const port = boardInfo(view).portAt.get(v);
   if (port === 'any') score += 1;
@@ -120,7 +141,7 @@ export function isOpenSpot(view: PlayerView, v: VertexId): boolean {
   return !(graph.vertexNeighbors[v] ?? []).some((n) => view.buildings[n]);
 }
 
-export type BuildTarget = 'city' | 'settlement' | 'devCard' | 'road';
+export type BuildTarget = 'city' | 'settlement' | 'devCard' | 'road' | 'ship';
 
 export function canAfford(hand: ResourceCounts, what: BuildTarget): boolean {
   return hasResources(hand, COSTS[what]);
