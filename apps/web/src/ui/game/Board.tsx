@@ -396,9 +396,9 @@ function BoardImpl(props: BoardProps) {
       {framed && <Frame board={board} />}
       {/* Ports under the terrain on classic boards (docks reach out over the sea); on Open
           Seas they sit on inner coasts and must stay above the sea hexes. */}
-      {graph.seaEdges.length === 0 && <Ports board={board} graph={graph} />}
+      {framed && <Ports board={board} graph={graph} />}
       <Terrain board={board} graph={graph} />
-      {graph.seaEdges.length > 0 && <Ports board={board} graph={graph} />}
+      {!framed && <Ports board={board} graph={graph} />}
 
       <g className="roads" filter="url(#piece-shadow)">
         {Object.entries(view.roads).map(([edge, seat]) => {

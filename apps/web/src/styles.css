@@ -676,7 +676,7 @@ label {
 .hex-gold {
   stroke: #fff3c4;
 }
-.hex-gold + .hex-glyph {
+.hex-gold ~ .hex-glyph {
   color: rgb(70 35 0 / 0.7);
 }
 .shore-line {
@@ -1082,6 +1082,7 @@ label {
   color: #3a2600;
 }
 .fan {
+  --fan-step: 7px;
   grid-column: 2;
   position: relative;
   height: 30px;
@@ -1089,6 +1090,7 @@ label {
 }
 .fan-card {
   position: absolute;
+  left: calc(var(--i) * var(--fan-step));
   top: 2px;
   width: 19px;
   height: 27px;
@@ -1102,7 +1104,7 @@ label {
 }
 .fan-count {
   position: absolute;
-  left: 82px;
+  left: calc(var(--last) * var(--fan-step) + 30px);
   top: 6px;
   font-weight: 800;
   font-size: 0.9rem;
@@ -1116,9 +1118,17 @@ label {
 .tseat.active .tseat-avatar {
   box-shadow:
     0 0 0 2px #ffd76a,
-    0 0 18px 6px rgb(255 215 106 / 0.75),
     0 6px 10px rgb(0 0 0 / 0.5);
+}
+/* The glow is a separate layer whose opacity pulses: cheap to animate, unlike box-shadow. */
+.tseat.active .tseat-avatar::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  box-shadow: 0 0 18px 6px rgb(255 215 106 / 0.75);
   animation: seat-glow 1.6s ease-in-out infinite;
+  pointer-events: none;
 }
 .tseat.active .tseat-plate {
   border-color: #ffd76a;
@@ -1137,10 +1147,7 @@ label {
 }
 @keyframes seat-glow {
   50% {
-    box-shadow:
-      0 0 0 2px #ffd76a,
-      0 0 8px 2px rgb(255 215 106 / 0.4),
-      0 6px 10px rgb(0 0 0 / 0.5);
+    opacity: 0.35;
   }
 }
 
@@ -1148,9 +1155,9 @@ label {
 
 .table-dice {
   position: absolute;
-  left: 50%;
-  bottom: 14px;
-  transform: translateX(-50%);
+  /* Bottom-left corner of the board column: the frame's corners leave bare table there. */
+  left: calc(var(--seat-col) + 6px);
+  bottom: 12px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1196,16 +1203,16 @@ label {
 @keyframes dice-in {
   0% {
     opacity: 0;
-    transform: translate(-50%, -60px) rotate(-200deg) scale(1.4);
+    transform: translate(40px, -60px) rotate(-200deg) scale(1.4);
   }
   100% {
     opacity: 1;
-    transform: translate(-50%, 0);
+    transform: none;
   }
 }
 @media (prefers-reduced-motion: reduce) {
   .table-dice,
-  .tseat.active .tseat-avatar {
+  .tseat.active .tseat-avatar::after {
     animation: none;
   }
 }
@@ -1486,7 +1493,11 @@ label {
   border-radius: 7px;
   background:
     radial-gradient(circle at 50% 38%, rgb(255 255 255 / 0.35), transparent 60%),
-    linear-gradient(170deg, var(--card-a), var(--card-b));
+    linear-gradient(
+      170deg,
+      color-mix(in srgb, var(--card-res) 82%, white),
+      color-mix(in srgb, var(--card-res) 62%, black)
+    );
   box-shadow:
     0 4px 8px rgb(0 0 0 / 0.55),
     inset 0 0 0 1px rgb(0 0 0 / 0.25);
@@ -1523,25 +1534,20 @@ label {
   gap: 10px;
   padding: 8px 6px 0 0;
 }
-.res-brick {
-  --card-a: #d06a3d;
-  --card-b: #7e3015;
+.hand .card.res-brick {
+  --card-res: var(--res-brick);
 }
-.res-lumber {
-  --card-a: #4f9145;
-  --card-b: #1f4a1b;
+.hand .card.res-lumber {
+  --card-res: var(--res-lumber);
 }
-.res-wool {
-  --card-a: #a6d36c;
-  --card-b: #5a8f2c;
+.hand .card.res-wool {
+  --card-res: var(--res-wool);
 }
-.res-grain {
-  --card-a: #f1cc4a;
-  --card-b: #a87b0a;
+.hand .card.res-grain {
+  --card-res: var(--res-grain);
 }
-.res-ore {
-  --card-a: #9aa0ae;
-  --card-b: #4b505c;
+.hand .card.res-ore {
+  --card-res: var(--res-ore);
 }
 .devcards {
   display: flex;
@@ -2330,10 +2336,13 @@ a {
   .tseat-stat {
     display: none;
   }
+  .fan {
+    --fan-step: 4px;
+  }
 }
 
 /* Phones and narrow windows: each seat shrinks to an avatar with its points and card count. */
-@media (max-width: 900px), (max-height: 560px) {
+@media (max-width: 900px), (max-height: 720px) {
   .game-board.table {
     --seat-col: 64px;
     padding: 4px var(--seat-col);
@@ -2417,6 +2426,10 @@ a {
     height: 24px;
     font-size: 0.8rem;
   }
+}
+
+/* Phones: smaller hand cards (the rail must leave room for the build buttons). */
+@media (max-width: 900px), (max-height: 560px) {
   .game .hand .card {
     width: 40px;
     height: 46px;

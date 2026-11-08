@@ -120,26 +120,8 @@ export function boardViewBox(board: Board, size = HEX_SIZE): ViewBox {
   const rim = rimSeaHexes(board);
   const inner = board.hexes.filter((h) => !rim.has(h.id));
   const cropped = rim.size > 0 && inner.length > 0;
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const h of cropped ? inner : board.hexes) {
-    for (const p of hexCornerPoints(h.q, h.r, size)) {
-      minX = Math.min(minX, p.x);
-      minY = Math.min(minY, p.y);
-      maxX = Math.max(maxX, p.x);
-      maxY = Math.max(maxY, p.y);
-    }
-  }
-  if (!Number.isFinite(minX)) return { minX: 0, minY: 0, width: size, height: size };
-  const margin = size * (cropped ? RIM_MARGIN : PORT_OFFSET + 0.45);
-  return {
-    minX: round(minX - margin),
-    minY: round(minY - margin),
-    width: round(maxX - minX + 2 * margin),
-    height: round(maxY - minY + 2 * margin),
-  };
+  const corners = (cropped ? inner : board.hexes).flatMap((h) => hexCornerPoints(h.q, h.r, size));
+  return boundsOf(corners, size * (cropped ? RIM_MARGIN : PORT_OFFSET + 0.45), size);
 }
 
 /**
@@ -200,8 +182,9 @@ export function landHull(board: Board, scale: number, size = HEX_SIZE): Point[] 
   return [...half(pts), ...half([...pts].reverse())];
 }
 
-/** Bounding box of `pts` grown by `pad` on each side. */
-export function boundsOf(pts: Point[], pad = 0): ViewBox {
+/** Bounding box of `pts` grown by `pad` on each side; a `fallback`-sized square when empty. */
+export function boundsOf(pts: Point[], pad = 0, fallback = HEX_SIZE): ViewBox {
+  if (pts.length === 0) return { minX: 0, minY: 0, width: fallback, height: fallback };
   const xs = pts.map((p) => p.x);
   const ys = pts.map((p) => p.y);
   const minX = Math.min(...xs) - pad;

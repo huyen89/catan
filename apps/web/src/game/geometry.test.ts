@@ -218,6 +218,10 @@ describe('landHull (table frame)', () => {
     });
   }
 
+  it('falls back to a square for an empty point set', () => {
+    expect(boundsOf([], 5, 60)).toEqual({ minX: 0, minY: 0, width: 60, height: 60 });
+  });
+
   it('bounds a point set with padding', () => {
     expect(
       boundsOf(
