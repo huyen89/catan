@@ -33,7 +33,11 @@ export function Hand({ view }: { view: PlayerView }) {
   return (
     <section className="hand" aria-label="Your resources">
       {RESOURCES.map((r) => (
-        <div key={r} className={res[r] ? 'card' : 'card empty'} title={RESOURCE_LABEL[r]}>
+        <div
+          key={r}
+          className={res[r] ? `card res-${r}` : `card res-${r} empty`}
+          title={RESOURCE_LABEL[r]}
+        >
           <ResourceIcon res={r} size={26} />
           <span className="card-label">{RESOURCE_LABEL[r]}</span>
           <span className="card-count" data-testid={`hand-${r}`}>

@@ -120,26 +120,8 @@ export function boardViewBox(board: Board, size = HEX_SIZE): ViewBox {
   const rim = rimSeaHexes(board);
   const inner = board.hexes.filter((h) => !rim.has(h.id));
   const cropped = rim.size > 0 && inner.length > 0;
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const h of cropped ? inner : board.hexes) {
-    for (const p of hexCornerPoints(h.q, h.r, size)) {
-      minX = Math.min(minX, p.x);
-      minY = Math.min(minY, p.y);
-      maxX = Math.max(maxX, p.x);
-      maxY = Math.max(maxY, p.y);
-    }
-  }
-  if (!Number.isFinite(minX)) return { minX: 0, minY: 0, width: size, height: size };
-  const margin = size * (cropped ? RIM_MARGIN : PORT_OFFSET + 0.45);
-  return {
-    minX: round(minX - margin),
-    minY: round(minY - margin),
-    width: round(maxX - minX + 2 * margin),
-    height: round(maxY - minY + 2 * margin),
-  };
+  const corners = (cropped ? inner : board.hexes).flatMap((h) => hexCornerPoints(h.q, h.r, size));
+  return boundsOf(corners, size * (cropped ? RIM_MARGIN : PORT_OFFSET + 0.45), size);
 }
 
 /**
@@ -168,3 +150,49 @@ export function tokenPips(n: number): number {
 }
 
 export const isHotToken = (n: number): boolean => n === 6 || n === 8;
+
+/**
+ * Convex hull (clockwise in screen space) of every land hex's corners, each hex first scaled by
+ * `scale` around its centre: the outline of a frame sitting `scale - 1` hex sizes off the coast.
+ */
+export function landHull(board: Board, scale: number, size = HEX_SIZE): Point[] {
+  const pts = board.hexes
+    .filter((h) => h.terrain !== 'sea')
+    .flatMap((h) => {
+      const c = hexToPixel(h.q, h.r, size);
+      return hexCornerPoints(h.q, h.r, size).map((p) => ({
+        x: c.x + (p.x - c.x) * scale,
+        y: c.y + (p.y - c.y) * scale,
+      }));
+    })
+    .sort((a, b) => a.x - b.x || a.y - b.y);
+  if (pts.length < 3) return pts;
+  const cross = (o: Point, a: Point, b: Point) =>
+    (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const half = (list: Point[]) => {
+    const out: Point[] = [];
+    for (const p of list) {
+      while (out.length >= 2 && cross(out[out.length - 2]!, out[out.length - 1]!, p) <= 1e-9)
+        out.pop();
+      out.push(p);
+    }
+    out.pop();
+    return out;
+  };
+  return [...half(pts), ...half([...pts].reverse())];
+}
+
+/** Bounding box of `pts` grown by `pad` on each side; a `fallback`-sized square when empty. */
+export function boundsOf(pts: Point[], pad = 0, fallback = HEX_SIZE): ViewBox {
+  if (pts.length === 0) return { minX: 0, minY: 0, width: fallback, height: fallback };
+  const xs = pts.map((p) => p.x);
+  const ys = pts.map((p) => p.y);
+  const minX = Math.min(...xs) - pad;
+  const minY = Math.min(...ys) - pad;
+  return {
+    minX: round(minX),
+    minY: round(minY),
+    width: round(Math.max(...xs) + pad - minX),
+    height: round(Math.max(...ys) + pad - minY),
+  };
+}

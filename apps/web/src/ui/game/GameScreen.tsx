@@ -21,6 +21,7 @@ import { GameLog } from './GameLog';
 import { PlayersPanel } from './PlayersPanel';
 import { useSeatMeta } from './seats';
 import { SideTabs, type SideTab } from './SideTabs';
+import { TableDice, TableSeats } from './TableSeats';
 import { TradePanel } from './TradePanel';
 import { COMPACT_QUERY, useMediaQuery } from '../useMediaQuery';
 
@@ -162,18 +163,22 @@ export function GameScreen({ header, onLeave, chatDisabled }: GameScreenProps) {
         </div>
       )}
 
-      <main className="game-board">
-        <Board
-          view={view}
-          highlights={hl}
-          colorOf={colorOf}
-          nameOf={nameOf}
-          disabled={busy}
-          onVertex={onVertex}
-          onEdge={onEdge}
-          onHex={onHex}
-          onShip={onShip}
-        />
+      <main className="game-board table">
+        <div className="table-center">
+          <Board
+            view={view}
+            highlights={hl}
+            colorOf={colorOf}
+            nameOf={nameOf}
+            disabled={busy}
+            onVertex={onVertex}
+            onEdge={onEdge}
+            onHex={onHex}
+            onShip={onShip}
+          />
+        </div>
+        <TableSeats view={view} />
+        <TableDice view={view} />
       </main>
 
       <SideTabs

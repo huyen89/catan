@@ -513,6 +513,34 @@ label {
   background: radial-gradient(circle at 50% 45%, var(--sea) 0%, var(--sea-deep) 75%);
   display: flex;
 }
+/* The game screen's board area is a wooden table: grain from an SVG noise stretched sideways,
+   warm planks underneath and a vignette so the board in the middle reads as lit. */
+.game-board.table {
+  position: relative;
+  overflow: hidden;
+  padding: 10px var(--seat-col);
+  --seat-col: 190px;
+  background:
+    radial-gradient(ellipse at 50% 48%, rgb(255 220 170 / 0.18) 0%, transparent 55%),
+    radial-gradient(ellipse at 50% 50%, transparent 55%, rgb(0 0 0 / 0.55) 100%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='600'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.004 0.09' numOctaves='3' seed='7'/%3E%3CfeColorMatrix values='0 0 0 0 0.18 0 0 0 0 0.09 0 0 0 0 0.03 0 0 0 1.1 -0.35'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E"),
+    repeating-linear-gradient(
+      180deg,
+      transparent 0 118px,
+      rgb(0 0 0 / 0.28) 118px 120px,
+      rgb(255 255 255 / 0.05) 120px 121px
+    ),
+    linear-gradient(180deg, #8a5a32, #7a4b27 40%, #8d5b31 70%, #744624);
+}
+.table-center {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+.table .board {
+  overflow: visible;
+}
 .game-side {
   grid-area: side;
   overflow-y: auto;
@@ -648,7 +676,7 @@ label {
 .hex-gold {
   stroke: #fff3c4;
 }
-.hex-gold + .hex-glyph {
+.hex-gold ~ .hex-glyph {
   color: rgb(70 35 0 / 0.7);
 }
 .shore-line {
@@ -817,6 +845,375 @@ label {
 @media (prefers-reduced-motion: reduce) {
   .hl-mark {
     animation: none !important;
+  }
+}
+
+/* ------------------------------------------------------------ tabletop pieces */
+
+.frame-wood {
+  fill: url(#wood-fill);
+  stroke: #4a2c14;
+  stroke-width: 3;
+  stroke-linejoin: round;
+  filter: url(#board-shadow);
+}
+.frame-inner {
+  fill: #e6cf98;
+  stroke: #b89a5c;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+.frame-sea {
+  fill: url(#sea-fill);
+  stroke-linejoin: round;
+}
+.hex-side {
+  fill: #6d5530;
+  stroke: #4a3a1f;
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
+.hex-tex,
+.hex-shine {
+  pointer-events: none;
+  stroke: none;
+}
+.hex-shine {
+  fill: url(#tile-shine);
+}
+.tex-forest {
+  fill: url(#tex-forest);
+}
+.tex-fields {
+  fill: url(#tex-fields);
+}
+.tex-pasture {
+  fill: url(#tex-pasture);
+}
+.tex-hills {
+  fill: url(#tex-hills);
+}
+.tex-mountains {
+  fill: url(#tex-mountains);
+}
+.tex-desert {
+  fill: url(#tex-desert);
+}
+.tex-gold {
+  fill: none;
+}
+.token-shadow {
+  fill: rgb(0 0 0 / 0.35);
+}
+.token-ring {
+  fill: none;
+  stroke: #c9b78a;
+  stroke-width: 0.8;
+}
+.road-shine {
+  stroke: rgb(255 255 255 / 0.35);
+  stroke-width: 2;
+  stroke-linecap: round;
+  transform: translateY(-1.5px);
+}
+.building-side {
+  fill: rgb(0 0 0 / 0.3);
+}
+.building-roof {
+  fill: rgb(0 0 0 / 0.18);
+}
+.building-line {
+  fill: none;
+  stroke: rgb(0 0 0 / 0.55);
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+.building-edge {
+  fill: none;
+  stroke: #111;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+}
+.table .building {
+  stroke: none;
+}
+.robber path {
+  fill: url(#robber-fill);
+}
+
+/* ------------------------------------------------------------ seats around the table */
+
+.table-seats {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.tseat {
+  --seat-color: #888;
+  position: absolute;
+  width: calc(var(--seat-col) - 22px);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 4px;
+  transition:
+    transform 0.25s,
+    opacity 0.25s;
+}
+.tseat-tl,
+.tseat-ml,
+.tseat-bl {
+  left: 12px;
+}
+.tseat-tr,
+.tseat-mr,
+.tseat-br {
+  right: 12px;
+}
+.tseat-tl,
+.tseat-tr {
+  top: 14px;
+}
+.tseat-ml,
+.tseat-mr {
+  top: 50%;
+  transform: translateY(-50%);
+}
+.tseat-bl,
+.tseat-br {
+  bottom: 14px;
+}
+.tseat-avatar {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: #fff;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.6);
+  background:
+    radial-gradient(circle at 35% 30%, rgb(255 255 255 / 0.45), transparent 55%), var(--seat-color);
+  border: 3px solid #2b1a0c;
+  box-shadow:
+    0 0 0 2px #d8b67a,
+    0 6px 10px rgb(0 0 0 / 0.5);
+}
+.tseat-mic {
+  position: absolute;
+  right: -6px;
+  bottom: -4px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #1d2229;
+  color: var(--ok);
+  border: 1px solid #d8b67a;
+}
+.tseat-mic.muted {
+  color: var(--muted);
+}
+.tseat-plate {
+  min-width: 0;
+  padding: 4px 8px 5px;
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgb(30 20 12 / 0.92), rgb(20 13 8 / 0.92));
+  border: 1px solid rgb(216 182 122 / 0.5);
+  border-left: 4px solid var(--seat-color);
+  box-shadow: 0 4px 10px rgb(0 0 0 / 0.45);
+}
+.tseat-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: #f6e7c8;
+}
+.tseat-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tseat-tag {
+  flex: none;
+  font-size: 0.62rem;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: #3a4a63;
+  color: #cfe0ff;
+}
+.tseat-stats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: #d9c7a3;
+}
+.tseat-vp {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #ffd76a;
+}
+.tseat-vp .ico {
+  width: 15px;
+  height: 15px;
+}
+.tseat-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.tseat-award {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: #ffd76a;
+  color: #3a2600;
+}
+.fan {
+  --fan-step: 7px;
+  grid-column: 2;
+  position: relative;
+  height: 30px;
+  display: block;
+}
+.fan-card {
+  position: absolute;
+  left: calc(var(--i) * var(--fan-step));
+  top: 2px;
+  width: 19px;
+  height: 27px;
+  border-radius: 3px;
+  transform-origin: 50% 120%;
+  background:
+    repeating-linear-gradient(45deg, rgb(255 255 255 / 0.12) 0 2px, transparent 2px 5px),
+    linear-gradient(160deg, #6d2a1a, #3d1209);
+  border: 1.5px solid #e9d3a4;
+  box-shadow: 1px 1px 3px rgb(0 0 0 / 0.5);
+}
+.fan-count {
+  position: absolute;
+  left: calc(var(--last) * var(--fan-step) + 30px);
+  top: 6px;
+  font-weight: 800;
+  font-size: 0.9rem;
+  color: #f6e7c8;
+  text-shadow: 0 1px 2px #000;
+}
+.tseat.offline {
+  opacity: 0.5;
+  filter: grayscale(0.7);
+}
+.tseat.active .tseat-avatar {
+  box-shadow:
+    0 0 0 2px #ffd76a,
+    0 6px 10px rgb(0 0 0 / 0.5);
+}
+/* The glow is a separate layer whose opacity pulses: cheap to animate, unlike box-shadow. */
+.tseat.active .tseat-avatar::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  box-shadow: 0 0 18px 6px rgb(255 215 106 / 0.75);
+  animation: seat-glow 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+.tseat.active .tseat-plate {
+  border-color: #ffd76a;
+  box-shadow:
+    0 0 14px rgb(255 215 106 / 0.45),
+    0 4px 10px rgb(0 0 0 / 0.45);
+}
+.tseat.acting .tseat-avatar {
+  box-shadow:
+    0 0 0 2px #9fe3ff,
+    0 6px 10px rgb(0 0 0 / 0.5);
+}
+.tseat.speaking .tseat-avatar {
+  outline: 3px solid var(--ok);
+  outline-offset: 3px;
+}
+@keyframes seat-glow {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* ------------------------------------------------------------ dice on the table */
+
+.table-dice {
+  position: absolute;
+  /* Bottom-left corner of the board column: the frame's corners leave bare table there. */
+  left: calc(var(--seat-col) + 6px);
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: none;
+  animation: dice-in 0.6s cubic-bezier(0.2, 0.8, 0.3, 1.2);
+}
+.tdie {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  transform: rotate(var(--tilt));
+  background: radial-gradient(circle at 30% 25%, #ffffff, #efe6d2 60%, #cfc2a4);
+  box-shadow:
+    inset -3px -4px 0 rgb(0 0 0 / 0.12),
+    3px 6px 8px rgb(0 0 0 / 0.55);
+}
+.tdie-pip {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #555, #111);
+}
+.dice-total {
+  min-width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 1.05rem;
+  color: #2a1a08;
+  background: #f3dfae;
+  border: 2px solid #8a5a32;
+  box-shadow: 0 3px 6px rgb(0 0 0 / 0.5);
+}
+.dice-total.seven {
+  background: #c1121f;
+  color: #fff;
+}
+@keyframes dice-in {
+  0% {
+    opacity: 0;
+    transform: translate(40px, -60px) rotate(-200deg) scale(1.4);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .table-dice,
+  .tseat.active .tseat-avatar::after {
+    animation: none;
   }
 }
 
@@ -1077,6 +1474,80 @@ label {
 .card-count {
   font-size: 1.15rem;
   font-weight: 700;
+}
+/* Your hand on the game screen: real-looking cards in the resource colours on a wooden rail. */
+.game .game-bottom {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.06), transparent 30%),
+    linear-gradient(180deg, #4a2c16, #2e1a0c);
+  border-top: 3px solid #a87a45;
+  box-shadow: 0 -6px 14px rgb(0 0 0 / 0.45);
+}
+.game .hand .card {
+  position: relative;
+  width: 58px;
+  height: 80px;
+  justify-content: flex-start;
+  padding: 7px 2px 4px;
+  border: 3px solid #f4ead2;
+  border-radius: 7px;
+  background:
+    radial-gradient(circle at 50% 38%, rgb(255 255 255 / 0.35), transparent 60%),
+    linear-gradient(
+      170deg,
+      color-mix(in srgb, var(--card-res) 82%, white),
+      color-mix(in srgb, var(--card-res) 62%, black)
+    );
+  box-shadow:
+    0 4px 8px rgb(0 0 0 / 0.55),
+    inset 0 0 0 1px rgb(0 0 0 / 0.25);
+  transition: transform 0.15s;
+}
+.game .hand .card:not(.empty):hover {
+  transform: translateY(-4px) rotate(-1.5deg);
+}
+.game .hand .card .card-label {
+  color: rgb(255 255 255 / 0.9);
+  font-weight: 600;
+  text-shadow: 0 1px 1px rgb(0 0 0 / 0.5);
+}
+.game .hand .card .card-count {
+  position: absolute;
+  right: -9px;
+  top: -9px;
+  min-width: 24px;
+  height: 24px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  font-size: 0.95rem;
+  background: #fff8e6;
+  color: #2a1a08;
+  border: 2px solid #8a5a32;
+  box-shadow: 0 2px 4px rgb(0 0 0 / 0.5);
+}
+.game .hand .card.empty {
+  opacity: 0.35;
+  filter: grayscale(0.6);
+}
+.game .hand {
+  gap: 10px;
+  padding: 8px 6px 0 0;
+}
+.hand .card.res-brick {
+  --card-res: var(--res-brick);
+}
+.hand .card.res-lumber {
+  --card-res: var(--res-lumber);
+}
+.hand .card.res-wool {
+  --card-res: var(--res-wool);
+}
+.hand .card.res-grain {
+  --card-res: var(--res-grain);
+}
+.hand .card.res-ore {
+  --card-res: var(--res-ore);
 }
 .devcards {
   display: flex;
@@ -1848,5 +2319,132 @@ a {
   }
   .show-results {
     right: 16px;
+  }
+}
+
+/* ------------------------------------------------------------ table on smaller screens */
+
+@media (max-width: 1280px) {
+  .game-board.table {
+    --seat-col: 150px;
+  }
+  .tseat-avatar {
+    width: 42px;
+    height: 42px;
+    font-size: 1.15rem;
+  }
+  .tseat-stat {
+    display: none;
+  }
+  .fan {
+    --fan-step: 4px;
+  }
+}
+
+/* Phones and narrow windows: each seat shrinks to an avatar with its points and card count. */
+@media (max-width: 900px), (max-height: 720px) {
+  .game-board.table {
+    --seat-col: 64px;
+    padding: 4px var(--seat-col);
+  }
+  .tseat {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    row-gap: 2px;
+  }
+  .tseat-tl,
+  .tseat-ml,
+  .tseat-bl {
+    left: 4px;
+  }
+  .tseat-tr,
+  .tseat-mr,
+  .tseat-br {
+    right: 4px;
+  }
+  .tseat-tl,
+  .tseat-tr {
+    top: 6px;
+  }
+  .tseat-bl,
+  .tseat-br {
+    bottom: 6px;
+  }
+  .tseat-avatar {
+    width: 34px;
+    height: 34px;
+    font-size: 0.95rem;
+    border-width: 2px;
+  }
+  .tseat-plate {
+    padding: 1px 4px;
+    border-left-width: 3px;
+    max-width: 100%;
+  }
+  .tseat-name {
+    font-size: 0.68rem;
+  }
+  .tseat-tag,
+  .tseat-stat,
+  .tseat-award {
+    display: none;
+  }
+  .tseat-vp {
+    font-size: 0.85rem;
+  }
+  .fan {
+    grid-column: 1;
+    height: auto;
+  }
+  .fan-card {
+    display: none;
+  }
+  .fan-count {
+    position: static;
+    font-size: 0.72rem;
+    padding: 0 5px;
+    border-radius: 6px;
+    background: #6d2a1a;
+    border: 1px solid #e9d3a4;
+  }
+  .table-dice {
+    bottom: 4px;
+    gap: 5px;
+  }
+  .tdie {
+    width: 26px;
+    height: 26px;
+    border-radius: 5px;
+  }
+  .tdie-pip {
+    width: 5px;
+    height: 5px;
+    margin: -2.5px 0 0 -2.5px;
+  }
+  .dice-total {
+    min-width: 24px;
+    height: 24px;
+    font-size: 0.8rem;
+  }
+}
+
+/* Phones: smaller hand cards (the rail must leave room for the build buttons). */
+@media (max-width: 900px), (max-height: 560px) {
+  .game .hand .card {
+    width: 40px;
+    height: 46px;
+    padding: 3px 1px;
+    border-width: 2px;
+  }
+  .game .hand .card .card-count {
+    right: -7px;
+    top: -7px;
+    min-width: 18px;
+    height: 18px;
+    font-size: 0.75rem;
+  }
+  .game .hand {
+    gap: 7px;
+    padding-top: 6px;
   }
 }

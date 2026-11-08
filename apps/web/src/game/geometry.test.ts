@@ -11,10 +11,12 @@ import {
   HEX_SIZE,
   RIM_MARGIN,
   boardViewBox,
+  boundsOf,
   clampSprite,
   edgeMidpoint,
   edgePoints,
   hexCornerPoints,
+  landHull,
   portAnchor,
   rimSeaHexes,
   shrinkSegment,
@@ -180,5 +182,60 @@ describe('tokenPips', () => {
     ]);
     expect(tokenPips(7)).toBe(0);
     expect(tokenPips(13)).toBe(0);
+  });
+});
+
+describe('landHull (table frame)', () => {
+  for (const [name, board] of [
+    ['base', board4],
+    ['ext56', board6],
+  ] as const) {
+    it(`is convex and keeps every port marker on the water inside it (${name})`, () => {
+      const hull = landHull(board, 2.2);
+      const n = hull.length;
+      // Clockwise in screen space (y down): every turn has a positive cross product.
+      for (let i = 0; i < n; i++) {
+        const [a, b, c] = [hull[i]!, hull[(i + 1) % n]!, hull[(i + 2) % n]!];
+        expect((b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x)).toBeGreaterThan(0);
+      }
+      const inside = (p: { x: number; y: number }) =>
+        hull.every((a, i) => {
+          const b = hull[(i + 1) % n]!;
+          return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x) >= 0;
+        });
+      const graph = graphFor(board);
+      for (const port of board.ports) {
+        const a = portAnchor(graph, port.edge);
+        for (const [dx, dy] of [
+          [0, 0],
+          [18, 0],
+          [-18, 0],
+          [0, 18],
+          [0, -18],
+        ])
+          expect(inside({ x: a.x + dx!, y: a.y + dy! })).toBe(true);
+      }
+    });
+  }
+
+  it('falls back to a square for an empty point set', () => {
+    expect(boundsOf([], 5, 60)).toEqual({ minX: 0, minY: 0, width: 60, height: 60 });
+  });
+
+  it('bounds a point set with padding', () => {
+    expect(
+      boundsOf(
+        [
+          { x: 0, y: 1 },
+          { x: 4, y: -2 },
+        ],
+        1,
+      ),
+    ).toEqual({
+      minX: -1,
+      minY: -3,
+      width: 6,
+      height: 5,
+    });
   });
 });
