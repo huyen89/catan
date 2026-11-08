@@ -168,3 +168,48 @@ export function tokenPips(n: number): number {
 }
 
 export const isHotToken = (n: number): boolean => n === 6 || n === 8;
+
+/**
+ * Convex hull (clockwise in screen space) of every land hex's corners, each hex first scaled by
+ * `scale` around its centre: the outline of a frame sitting `scale - 1` hex sizes off the coast.
+ */
+export function landHull(board: Board, scale: number, size = HEX_SIZE): Point[] {
+  const pts = board.hexes
+    .filter((h) => h.terrain !== 'sea')
+    .flatMap((h) => {
+      const c = hexToPixel(h.q, h.r, size);
+      return hexCornerPoints(h.q, h.r, size).map((p) => ({
+        x: c.x + (p.x - c.x) * scale,
+        y: c.y + (p.y - c.y) * scale,
+      }));
+    })
+    .sort((a, b) => a.x - b.x || a.y - b.y);
+  if (pts.length < 3) return pts;
+  const cross = (o: Point, a: Point, b: Point) =>
+    (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const half = (list: Point[]) => {
+    const out: Point[] = [];
+    for (const p of list) {
+      while (out.length >= 2 && cross(out[out.length - 2]!, out[out.length - 1]!, p) <= 1e-9)
+        out.pop();
+      out.push(p);
+    }
+    out.pop();
+    return out;
+  };
+  return [...half(pts), ...half([...pts].reverse())];
+}
+
+/** Bounding box of `pts` grown by `pad` on each side. */
+export function boundsOf(pts: Point[], pad = 0): ViewBox {
+  const xs = pts.map((p) => p.x);
+  const ys = pts.map((p) => p.y);
+  const minX = Math.min(...xs) - pad;
+  const minY = Math.min(...ys) - pad;
+  return {
+    minX: round(minX),
+    minY: round(minY),
+    width: round(Math.max(...xs) + pad - minX),
+    height: round(Math.max(...ys) + pad - minY),
+  };
+}
